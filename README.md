@@ -2,6 +2,8 @@
 
 A backend service for ASD (Autism Spectrum Disorder) detection and management system. This service provides REST APIs for user authentication, assessment management, child records, report generation, and real-time chat functionality.
 
+Frontend Repository: [ASD Detection Frontend](https://github.com/NavarasP/ASD_Detection_Frontend)
+
 ## Environment Variables
 
 Create a `.env` file in the root directory with the following variables:
@@ -52,71 +54,385 @@ REDIS_URL=redis://localhost:6379
 ## API Endpoints
 
 ### Authentication Routes (`/api/auth`)
-- **POST** `/api/auth/register`
-  - Register a new user
-  - Body: `{ "email": string, "password": string, "name": string }`
-  - Response: `{ "token": string, "user": Object }`
 
+#### Register New User
+- **POST** `/api/auth/register`
+- Headers: None
+- Body:
+  ```json
+  {
+    "name": "string",
+    "email": "string",
+    "password": "string",
+    "role": "string" (optional, defaults to "caregiver")
+  }
+  ```
+- Success Response (200):
+  ```json
+  {
+    "token": "JWT_TOKEN_STRING",
+    "user": {
+      "id": "string",
+      "name": "string",
+      "email": "string",
+      "role": "string"
+    }
+  }
+  ```
+- Error Responses:
+  - 400: `{ "error": "email and password required" }`
+  - 409: `{ "error": "Email already in use" }`
+  - 500: `{ "error": "Server error" }`
+
+#### User Login
 - **POST** `/api/auth/login`
-  - Login existing user
-  - Body: `{ "email": string, "password": string }`
-  - Response: `{ "token": string, "user": Object }`
+- Headers: None
+- Body:
+  ```json
+  {
+    "email": "string",
+    "password": "string"
+  }
+  ```
+- Success Response (200):
+  ```json
+  {
+    "token": "JWT_TOKEN_STRING",
+    "user": {
+      "id": "string",
+      "name": "string",
+      "email": "string",
+      "role": "string"
+    }
+  }
+  ```
+- Error Responses:
+  - 400: `{ "error": "email and password required" }`
+  - 401: `{ "error": "Invalid credentials" }`
+  - 500: `{ "error": "Server error" }`
 
 ### Children Routes (`/api/children`)
-- **GET** `/api/children`
-  - Get all children records
-  - Headers: `Authorization: Bearer <token>`
-  - Response: `[{ child }]`
 
-- **POST** `/api/children`
-  - Create new child record
-  - Headers: `Authorization: Bearer <token>`
-  - Body: `{ "name": string, "dob": date, "gender": string }`
-  - Response: `{ child }`
+#### Add New Child
+- **POST** `/api/children/add`
+- Headers: `Authorization: Bearer <token>`
+- Body:
+  ```json
+  {
+    "name": "string",
+    "dob": "date",
+    "gender": "string",
+    "notes": "string" (optional)
+  }
+  ```
+- Success Response (200):
+  ```json
+  {
+    "_id": "string",
+    "caretakerId": "string",
+    "name": "string",
+    "dob": "date",
+    "gender": "string",
+    "notes": "string",
+    "createdAt": "date"
+  }
+  ```
+- Error Response:
+  - 500: `{ "error": "Error adding child" }`
+
+#### Get My Children
+- **GET** `/api/children/my`
+- Headers: `Authorization: Bearer <token>`
+- Success Response (200):
+  ```json
+  [
+    {
+      "_id": "string",
+      "caretakerId": "string",
+      "name": "string",
+      "dob": "date",
+      "gender": "string",
+      "notes": "string",
+      "createdAt": "date"
+    }
+  ]
+  ```
+- Error Response:
+  - 500: `{ "error": "Error fetching children" }`
+
+#### Update Child
+- **PUT** `/api/children/:childId`
+- Headers: `Authorization: Bearer <token>`
+- Body:
+  ```json
+  {
+    "name": "string" (optional),
+    "dob": "date" (optional),
+    "gender": "string" (optional),
+    "notes": "string" (optional)
+  }
+  ```
+- Success Response (200):
+  ```json
+  {
+    "message": "Child updated successfully",
+    "child": {
+      "_id": "string",
+      "caretakerId": "string",
+      "name": "string",
+      "dob": "date",
+      "gender": "string",
+      "notes": "string",
+      "updatedAt": "date"
+    }
+  }
+  ```
+- Error Responses:
+  - 404: `{ "error": "Child not found" }`
+  - 500: `{ "error": "Error updating child" }`
+
+#### Delete Child
+- **DELETE** `/api/children/:childId`
+- Headers: `Authorization: Bearer <token>`
+- Success Response (200):
+  ```json
+  {
+    "message": "Child removed"
+  }
+  ```
+- Error Responses:
+  - 404: `{ "error": "Child not found" }`
+  - 500: `{ "error": "Error deleting child" }`
 
 ### Assessment Routes (`/api/assessments`)
-- **GET** `/api/assessments`
-  - Get all assessments
-  - Headers: `Authorization: Bearer <token>`
-  - Response: `[{ assessment }]`
 
-- **POST** `/api/assessments`
-  - Create new assessment
-  - Headers: `Authorization: Bearer <token>`
-  - Body: `{ "childId": string, "type": string }`
-  - Response: `{ assessment }`
+#### Add New Assessment
+- **POST** `/api/assessments/add`
+- Headers: `Authorization: Bearer <token>`
+- Body:
+  ```json
+  {
+    "childId": "string",
+    "type": "string",
+    "answers": {
+      "question1": number,
+      "question2": number,
+      // ... more answers
+    }
+  }
+  ```
+- Success Response (200):
+  ```json
+  {
+    "message": "Assessment saved",
+    "score": number,
+    "risk": "string" (Low/Medium/High)
+  }
+  ```
+- Error Response:
+  - 500: `{ "error": "Error saving assessment" }`
+
+#### Get Child's Assessments
+- **GET** `/api/assessments/:childId`
+- Headers: `Authorization: Bearer <token>`
+- Success Response (200):
+  ```json
+  [
+    {
+      "_id": "string",
+      "childId": "string",
+      "caretakerId": "string",
+      "type": "string",
+      "answers": object,
+      "score": number,
+      "risk": "string",
+      "createdAt": "date"
+    }
+  ]
+  ```
+- Error Response:
+  - 500: `{ "error": "Error fetching assessments" }`
+
+#### Get Assessment Details
+- **GET** `/api/assessments/details/:assessmentId`
+- Headers: `Authorization: Bearer <token>`
+- Success Response (200):
+  ```json
+  {
+    "_id": "string",
+    "childId": "string",
+    "caretakerId": "string",
+    "type": "string",
+    "answers": object,
+    "score": number,
+    "risk": "string",
+    "createdAt": "date"
+  }
+  ```
+- Error Responses:
+  - 404: `{ "error": "Assessment not found" }`
+  - 500: `{ "error": "Error fetching assessment" }`
+
+#### Get Questionnaire Templates
+- **GET** `/api/assessments/questionnaires`
+- Headers: `Authorization: Bearer <token>`
+- Success Response (200):
+  ```json
+  [
+    {
+      "type": "MCHAT",
+      "questions": 23
+    },
+    {
+      "type": "SCQ",
+      "questions": 40
+    },
+    {
+      "type": "TABC",
+      "questions": 30
+    }
+  ]
+  ```
+- Error Response:
+  - 500: `{ "error": "Error fetching templates" }`
 
 ### Response Routes (`/api/responses`)
-- **POST** `/api/responses`
-  - Submit assessment response
-  - Headers: `Authorization: Bearer <token>`
-  - Body: `{ "assessmentId": string, "answers": Object }`
-  - Response: `{ response }`
+
+#### Submit Response (Authenticated)
+- **POST** `/api/responses/submit`
+- Headers: `Authorization: Bearer <token>`
+- Body:
+  ```json
+  {
+    "childName": "string",
+    "childAgeMonths": number,
+    "answers": {
+      "q1": number (0-3),
+      "q2": number (0-3)
+      // ... more question answers
+    },
+    "meta": {
+      "device": "string",
+      "locale": "string",
+      "language": "string"
+    }
+  }
+  ```
+- Success Response (200):
+  ```json
+  {
+    "id": "string",
+    "prediction": {
+      "riskLevel": "string" (Low/Medium/High),
+      "probability": number (0-1),
+      "explanation": object
+    }
+  }
+  ```
+- Error Response:
+  - 400: `{ "error": "answers required" }`
+  - 500: `{ "error": "Server error" }`
+
+#### Submit Anonymous Response
+- **POST** `/api/responses/submit-anon`
+- Body: Same as `/submit`
+- Response: Same as `/submit`
+
+#### Get Response Details
+- **GET** `/api/responses/:id`
+- Headers: `Authorization: Bearer <token>`
+- Success Response (200):
+  ```json
+  {
+    "_id": "string",
+    "userId": "string",
+    "childName": "string",
+    "childAgeMonths": number,
+    "answers": object,
+    "meta": {
+      "device": "string",
+      "locale": "string",
+      "language": "string"
+    },
+    "prediction": {
+      "riskLevel": "string",
+      "probability": number,
+      "explanation": object
+    },
+    "createdAt": "date"
+  }
+  ```
+- Error Responses:
+  - 403: `{ "error": "Forbidden" }`
+  - 404: `{ "error": "Not found" }`
+  - 500: `{ "error": "Server error" }`
 
 ### Reports Routes (`/api/reports`)
 - **GET** `/api/reports/:childId`
   - Get reports for a child
   - Headers: `Authorization: Bearer <token>`
-  - Response: `[{ report }]`
+  - Success Response (200):
+    ```json
+    [
+      {
+        "_id": "string",
+        "childId": "string",
+        "type": "string",
+        "data": object,
+        "createdAt": "date"
+      }
+    ]
+    ```
 
 ### Media Routes (`/api/media`)
 - **POST** `/api/media/upload`
   - Upload media file
-  - Headers: `Authorization: Bearer <token>`
-  - Body: `FormData with file`
-  - Response: `{ url: string }`
+  - Headers: 
+    - `Authorization: Bearer <token>`
+    - `Content-Type: multipart/form-data`
+  - Body: `FormData` with file field
+  - Success Response (200):
+    ```json
+    {
+      "url": "string",
+      "publicId": "string"
+    }
+    ```
 
 ### Dashboard Routes (`/api/dashboard`)
 - **GET** `/api/dashboard/stats`
   - Get dashboard statistics
   - Headers: `Authorization: Bearer <token>`
-  - Response: `{ stats: Object }`
+  - Success Response (200):
+    ```json
+    {
+      "totalAssessments": number,
+      "recentAssessments": number,
+      "riskDistribution": {
+        "low": number,
+        "medium": number,
+        "high": number
+      },
+      "childrenCount": number
+    }
+    ```
 
 ### Chat Routes (`/api/chat`)
 - **GET** `/api/chat/history`
   - Get chat history
   - Headers: `Authorization: Bearer <token>`
-  - Response: `[{ message }]`
+  - Success Response (200):
+    ```json
+    [
+      {
+        "_id": "string",
+        "userId": "string",
+        "message": "string",
+        "timestamp": "date",
+        "type": "string"
+      }
+    ]
+    ```
 
 ### WebSocket Events
 The chat server supports real-time communication using Socket.IO:
