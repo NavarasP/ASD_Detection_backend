@@ -1,0 +1,13 @@
+const mongoose = require('mongoose');
+
+const AssessmentSchema = new mongoose.Schema({
+  childId: { type: mongoose.Schema.Types.ObjectId, ref: 'Child', required: true },
+  caretakerId: { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true },
+  type: { type: String, enum: ['MCHAT', 'SCQ', 'TABC'], default: 'MCHAT' },
+  answers: { type: Object, required: true },
+  score: { type: Number },
+  risk: { type: String, enum: ['Low', 'Medium', 'High'] },
+  createdAt: { type: Date, default: Date.now }
+});
+
+module.exports = mongoose.model('Assessment', AssessmentSchema);
