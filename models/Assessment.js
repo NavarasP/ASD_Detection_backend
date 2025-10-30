@@ -7,6 +7,14 @@ const AssessmentSchema = new mongoose.Schema({
   answers: { type: Object, required: true },
   score: { type: Number },
   risk: { type: String, enum: ['Low', 'Medium', 'High'] },
+  llmAnalysis: { 
+    summary: { type: String }, // LLM-generated summary
+    recommendations: { type: String }, // LLM recommendations
+    keyFindings: [{ type: String }], // Array of key findings
+    generatedAt: { type: Date }
+  },
+  reviewedByDoctor: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
+  reviewedAt: { type: Date },
   createdAt: { type: Date, default: Date.now }
 });
 

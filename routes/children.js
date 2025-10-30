@@ -5,14 +5,16 @@ const { requireAuth } = require('../middleware/auth');
 
 // POST /api/children/add
 router.post('/add', requireAuth, async (req, res) => {
-  const { name, dob, gender, notes } = req.body;
+  const { name, dob, gender, notes, medicalHistory } = req.body;
   try {
     const child = new Child({
       caretakerId: req.user.id,
       name,
       dob,
       gender,
-      notes
+      notes,
+      medicalHistory: medicalHistory || '',
+      authorizedDoctors: []
     });
     await child.save();
     res.json(child);
@@ -65,9 +67,18 @@ router.get('/:childId', requireAuth, async (req, res) => {
     const child = await Child.findById(req.params.childId);
     if (!child) return res.status(404).json({ error: 'Child not found' });
 
-    // Only owner (caretaker) or admin/doctor should view
-    if (child.caretakerId.toString() !== req.user.id && req.user.role !== 'admin' && req.user.role !== 'doctor')
-      return res.status(403).json({ error: 'Forbidden' });
+    // Authorization check:
+    // - Caretaker who owns the child
+    // - Admin (full access)
+    // - Doctor with approved access
+    const isOwner = child.caretakerId.toString() === req.user.id;
+    const isAdmin = req.user.role === 'admin';
+    const isAuthorizedDoctor = req.user.role === 'doctor' && 
+      child.authorizedDoctors.some(docId => docId.toString() === req.user.id);
+
+    if (!isOwner && !isAdmin && !isAuthorizedDoctor) {
+      return res.status(403).json({ error: 'Access denied. Request access from caretaker first.' });
+    }
 
     res.json(child);
   } catch (err) {

@@ -6,6 +6,8 @@ const ChildSchema = new mongoose.Schema({
   dob: { type: Date, required: true },
   gender: { type: String, enum: ['Male', 'Female', 'Other'] },
   notes: { type: String },
+  medicalHistory: { type: String }, // Additional medical background
+  authorizedDoctors: [{ type: mongoose.Schema.Types.ObjectId, ref: 'User' }], // Doctors with approved access
   createdAt: { type: Date, default: Date.now }
 });
 

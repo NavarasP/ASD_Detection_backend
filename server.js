@@ -16,6 +16,7 @@ const reportRoutes = require('./routes/reports');
 const dashboardRoutes = require('./routes/dashboard');
 const chatRoutes = require('./routes/chat');
 const searchRoutes = require('./routes/search');
+const accessRoutes = require('./routes/access');
 
 const app = express();
 
@@ -56,6 +57,7 @@ app.use('/api/reports', reportRoutes);
 app.use('/api/dashboard', dashboardRoutes);
 app.use('/api/chat', chatRoutes);
 app.use('/api/search', searchRoutes);
+app.use('/api/access', accessRoutes);
 
 // Global Error Handler
 app.use((err, req, res, next) => {
