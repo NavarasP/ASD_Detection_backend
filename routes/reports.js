@@ -10,7 +10,8 @@ router.post('/add', requireAuth, async (req, res) => {
   try {
     const report = new Report({ doctorId: req.user.id, childId, text, pdfUrl });
     await report.save();
-    res.json({ message: 'Report added', report });
+    // Return the created report object directly to match frontend expectations
+    res.json(report);
   } catch (err) {
     res.status(500).json({ error: 'Error adding report' });
   }

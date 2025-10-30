@@ -35,7 +35,8 @@ router.post('/upload', requireAuth, upload.single('file'), async (req, res) => {
       uploadedBy: req.user.id
     });
     await media.save();
-    res.json({ url: result.secure_url });
+    // Return the saved media document so clients have the real _id and metadata
+    res.json(media);
   } catch (err) {
     console.error(err);
     res.status(500).json({ error: 'Upload failed' });

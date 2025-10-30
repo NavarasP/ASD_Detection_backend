@@ -26,7 +26,8 @@ router.post('/add', requireAuth, async (req, res) => {
       risk
     });
     await assessment.save();
-    res.json({ message: 'Assessment saved', score, risk });
+    // Return the saved assessment so frontend receives the created resource
+    res.json(assessment);
   } catch (err) {
     res.status(500).json({ error: 'Error saving assessment' });
   }
