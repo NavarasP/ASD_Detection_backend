@@ -68,7 +68,7 @@ app.use((err, req, res, next) => {
 });
 
 // HTTP + Socket Server
-const PORT = process.env.PORT || 4000;
+const PORT = process.env.PORT || 8002;
 const server = http.createServer(app);
 initChatServer(server);
 
