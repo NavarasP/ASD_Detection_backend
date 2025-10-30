@@ -27,7 +27,6 @@ app.use(express.json());
 const allowedOrigins = [
   process.env.FRONTEND_ORIGIN || 'http://localhost:3000',
   'https://predictasd.vercel.app',
-  'http://localhost:3000'
 ];
 app.use(cors({
   origin: allowedOrigins,
