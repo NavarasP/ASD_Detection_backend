@@ -2,23 +2,46 @@ const express = require('express');
 const router = express.Router();
 const Assessment = require('../models/Assessment');
 const Child = require('../models/Child');
+const Questionnaire = require('../models/Questionnaire');
 const { requireAuth } = require('../middleware/auth');
 const { analyzeAssessment } = require('../utils/llm-service');
 
-// simple scoring function
-function computeMchatScore(answers) {
-  const score = Object.values(answers).reduce((a, b) => a + Number(b || 0), 0);
+// Dynamic scoring function based on questionnaire's scoringRules
+function computeScore(answers, questionnaire) {
+  // Count "yes" answers (assuming standard yes/no/sometimes format)
+  const yesCount = Object.values(answers).filter(a => a === 'yes').length;
+  
+  // Find matching risk level from scoring rules
   let risk = 'Low';
-  if (score >= 3 && score <= 6) risk = 'Medium';
-  else if (score > 6) risk = 'High';
-  return { score, risk };
+  if (questionnaire.scoringRules && questionnaire.scoringRules.length > 0) {
+    for (const rule of questionnaire.scoringRules) {
+      const inRange = yesCount >= rule.minScore && 
+        (rule.maxScore === undefined || yesCount <= rule.maxScore);
+      if (inRange) {
+        risk = rule.riskLevel;
+        break;
+      }
+    }
+  } else {
+    // Fallback to old MCHAT-style scoring
+    if (yesCount >= 3 && yesCount <= 6) risk = 'Medium';
+    else if (yesCount > 6) risk = 'High';
+  }
+  
+  return { score: yesCount, risk };
 }
 
 // POST /api/assessments/add
 router.post('/add', requireAuth, async (req, res) => {
-  const { childId, type, answers } = req.body;
+  const { childId, questionnaireId, answers } = req.body;
   try {
-    const { score, risk } = computeMchatScore(answers);
+    // Fetch questionnaire to get scoring rules and name
+    const questionnaire = await Questionnaire.findById(questionnaireId);
+    if (!questionnaire) {
+      return res.status(404).json({ error: 'Questionnaire not found' });
+    }
+    
+    const { score, risk } = computeScore(answers, questionnaire);
     
     // Get child info for LLM context
     const child = await Child.findById(childId);
@@ -29,16 +52,16 @@ router.post('/add', requireAuth, async (req, res) => {
     const assessment = new Assessment({
       childId,
       caretakerId: req.user.id,
-      type,
+      questionnaireId,
+      type: questionnaire.name, // Store questionnaire name for backward compatibility
       answers,
       score,
       risk
     });
 
     // Generate LLM analysis asynchronously (don't block the response)
-    // Store the promise and await it in the background
     const analysisPromise = analyzeAssessment({
-      type,
+      type: questionnaire.name,
       answers,
       score,
       risk,
@@ -67,23 +90,25 @@ router.post('/add', requireAuth, async (req, res) => {
         new Promise((_, reject) => setTimeout(() => reject(new Error('Timeout')), 5000))
       ]);
       // Fetch the updated assessment with LLM analysis
-      const updatedAssessment = await Assessment.findById(assessment._id);
+      const updatedAssessment = await Assessment.findById(assessment._id).populate('questionnaireId');
       res.json(updatedAssessment);
     } catch (timeoutErr) {
       // If LLM takes too long, return assessment without analysis
       // Analysis will be available on next fetch
-      res.json(assessment);
+      const populatedAssessment = await Assessment.findById(assessment._id).populate('questionnaireId');
+      res.json(populatedAssessment);
     }
   } catch (err) {
     console.error(err);
     res.status(500).json({ error: 'Error saving assessment' });
   }
 });
-// GET /api/assessments/:assessmentId (details)
+// GET /api/assessments/details/:assessmentId (details)
 // IMPORTANT: put detail/static routes before the param route to avoid shadowing
 router.get('/details/:assessmentId', requireAuth, async (req, res) => {
   try {
-    const assessment = await Assessment.findById(req.params.assessmentId);
+    const assessment = await Assessment.findById(req.params.assessmentId)
+      .populate('questionnaireId');
     if (!assessment) return res.status(404).json({ error: 'Assessment not found' });
     res.json(assessment);
   } catch (err) {
@@ -91,24 +116,11 @@ router.get('/details/:assessmentId', requireAuth, async (req, res) => {
   }
 });
 
-// GET /api/questionnaires
-router.get('/questionnaires', requireAuth, async (req, res) => {
-  try {
-    const templates = [
-      { type: 'MCHAT', questions: 23 },
-      { type: 'SCQ', questions: 40 },
-      { type: 'TABC', questions: 30 }
-    ];
-    res.json(templates);
-  } catch (err) {
-    res.status(500).json({ error: 'Error fetching templates' });
-  }
-});
-
 // GET /api/assessments/:childId  (list for child)
 router.get('/:childId', requireAuth, async (req, res) => {
   try {
-    const assessments = await Assessment.find({ childId: req.params.childId });
+    const assessments = await Assessment.find({ childId: req.params.childId })
+      .populate('questionnaireId');
     res.json(assessments);
   } catch (err) {
     res.status(500).json({ error: 'Error fetching assessments' });

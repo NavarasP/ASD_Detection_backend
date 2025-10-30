@@ -17,6 +17,7 @@ const dashboardRoutes = require('./routes/dashboard');
 const chatRoutes = require('./routes/chat');
 const searchRoutes = require('./routes/search');
 const accessRoutes = require('./routes/access');
+const questionnaireRoutes = require('./routes/questionnaires');
 
 const app = express();
 
@@ -58,6 +59,7 @@ app.use('/api/dashboard', dashboardRoutes);
 app.use('/api/chat', chatRoutes);
 app.use('/api/search', searchRoutes);
 app.use('/api/access', accessRoutes);
+app.use('/api/questionnaires', questionnaireRoutes);
 
 // Global Error Handler
 app.use((err, req, res, next) => {
