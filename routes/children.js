@@ -58,6 +58,22 @@ router.delete('/:childId', requireAuth, async (req, res) => {
     });
     if (!deleted) return res.status(404).json({ error: 'Child not found' });
     res.json({ message: 'Child removed' });
+
+// GET /api/children/:childId  (single child)
+router.get('/:childId', requireAuth, async (req, res) => {
+  try {
+    const child = await Child.findById(req.params.childId);
+    if (!child) return res.status(404).json({ error: 'Child not found' });
+
+    // Only owner (caretaker) or admin/doctor should view
+    if (child.caretakerId.toString() !== req.user.id && req.user.role !== 'admin' && req.user.role !== 'doctor')
+      return res.status(403).json({ error: 'Forbidden' });
+
+    res.json(child);
+  } catch (err) {
+    res.status(500).json({ error: 'Error fetching child' });
+  }
+});
   } catch (err) {
     res.status(500).json({ error: 'Error deleting child' });
   }

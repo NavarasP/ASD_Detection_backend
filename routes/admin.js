@@ -3,6 +3,11 @@ const router = express.Router();
 const { requireAuth, requireAdmin } = require('../middleware/auth');
 const ResponseModel = require('../models/Response');
 const createCsvWriter = require('csv-writer').createObjectCsvWriter;
+const User = require('../models/User');
+const Assessment = require('../models/Assessment');
+const Report = require('../models/Report');
+const os = require('os');
+const path = require('path');
 
 // Admin statistics
 // GET /api/admin/overview
@@ -25,8 +30,9 @@ router.get('/overview', requireAuth, requireAdmin, async (req, res) => {
 router.get('/export-csv', requireAuth, requireAdmin, async (req, res) => {
   try {
     const all = await ResponseModel.find().lean();
+    const csvPath = path.join(os.tmpdir(), 'predict_asd_export.csv');
     const csvWriter = createCsvWriter({
-      path: '/tmp/predict_asd_export.csv',
+      path: csvPath,
       header: [
         {id: '_id', title: 'id'},
         {id: 'childName', title: 'childName'},
@@ -50,7 +56,7 @@ router.get('/export-csv', requireAuth, requireAdmin, async (req, res) => {
 
     await csvWriter.writeRecords(rows);
 
-    res.download('/tmp/predict_asd_export.csv');
+    res.download(csvPath);
   } catch (err) {
     console.error(err);
     res.status(500).json({ error: 'Server error' });
@@ -58,11 +64,8 @@ router.get('/export-csv', requireAuth, requireAdmin, async (req, res) => {
 });
 
 // GET /api/admin/analytics
-router.get('/analytics', requireAuth, async (req, res) => {
+router.get('/analytics', requireAuth, requireAdmin, async (req, res) => {
   try {
-    if (req.user.role !== 'admin')
-      return res.status(403).json({ error: 'Admin only' });
-
     const totalUsers = await User.countDocuments();
     const totalAssessments = await Assessment.countDocuments();
     const totalReports = await Report.countDocuments();
@@ -77,10 +80,28 @@ router.get('/analytics', requireAuth, async (req, res) => {
 });
 
 // DELETE /api/admin/users/:userId
-router.delete('/users/:userId', requireAuth, async (req, res) => {
+// GET /api/admin/users
+router.get('/users', requireAuth, requireAdmin, async (req, res) => {
   try {
-    if (req.user.role !== 'admin')
-      return res.status(403).json({ error: 'Admin only' });
+    const usersRaw = await User.find().select('name email role createdAt').lean();
+    const users = usersRaw.map(u => ({
+      id: u._id ? u._id.toString() : undefined,
+      name: u.name,
+      email: u.email,
+      role: u.role,
+      // frontend expects 'status' and 'joinDate'
+      status: 'active',
+      joinDate: u.createdAt ? u.createdAt.toISOString() : null,
+    }));
+    res.json(users);
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: 'Error fetching users' });
+  }
+});
+
+router.delete('/users/:userId', requireAuth, requireAdmin, async (req, res) => {
+  try {
     await User.findByIdAndDelete(req.params.userId);
     res.json({ message: 'User deleted successfully' });
   } catch (err) {

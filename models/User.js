@@ -4,7 +4,8 @@ const UserSchema = new mongoose.Schema({
   name: { type: String },
   email: { type: String, required: true, unique: true, lowercase: true },
   passwordHash: { type: String, required: true },
-  role: { type: String, enum: ['caretaker','admin','doctor'], default: 'caregiver' },
+  // default should match the enum and other code (use 'caretaker')
+  role: { type: String, enum: ['caretaker','admin','doctor'], default: 'caretaker' },
   createdAt: { type: Date, default: Date.now }
 });
 

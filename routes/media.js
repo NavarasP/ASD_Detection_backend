@@ -57,5 +57,16 @@ router.delete('/:mediaId', requireAuth, async (req, res) => {
   }
 });
 
+// GET /api/media/:childId  (list uploads for a child)
+router.get('/:childId', requireAuth, async (req, res) => {
+  try {
+    const items = await Media.find({ childId: req.params.childId }).sort({ createdAt: -1 });
+    res.json(items);
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: 'Error fetching media' });
+  }
+});
+
 
 module.exports = router;

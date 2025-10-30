@@ -64,7 +64,7 @@ REDIS_URL=redis://localhost:6379
     "name": "string",
     "email": "string",
     "password": "string",
-    "role": "string" (optional, defaults to "caregiver")
+  "role": "string" (optional, defaults to "caretaker")
   }
   ```
 - Success Response (200):

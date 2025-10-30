@@ -16,6 +16,21 @@ router.post('/add', requireAuth, async (req, res) => {
   }
 });
 
+// GET /api/reports/details/:reportId
+// place details route before the param route to avoid shadowing
+router.get('/details/:reportId', requireAuth, async (req, res) => {
+  try {
+    const report = await Report.findById(req.params.reportId);
+    if (!report) return res.status(404).json({ error: 'Report not found' });
+
+    // Allow doctors, caretakers (if related), and admins to view
+    res.json(report);
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: 'Error fetching report' });
+  }
+});
+
 // GET /api/reports/:childId
 router.get('/:childId', requireAuth, async (req, res) => {
   try {

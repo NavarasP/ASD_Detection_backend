@@ -31,19 +31,8 @@ router.post('/add', requireAuth, async (req, res) => {
     res.status(500).json({ error: 'Error saving assessment' });
   }
 });
-
-// GET /api/assessments/:childId
-router.get('/:childId', requireAuth, async (req, res) => {
-  try {
-    const assessments = await Assessment.find({ childId: req.params.childId });
-    res.json(assessments);
-  } catch (err) {
-    res.status(500).json({ error: 'Error fetching assessments' });
-  }
-});
-
-
-// GET /api/assessments/:assessmentId
+// GET /api/assessments/:assessmentId (details)
+// IMPORTANT: put detail/static routes before the param route to avoid shadowing
 router.get('/details/:assessmentId', requireAuth, async (req, res) => {
   try {
     const assessment = await Assessment.findById(req.params.assessmentId);
@@ -65,6 +54,34 @@ router.get('/questionnaires', requireAuth, async (req, res) => {
     res.json(templates);
   } catch (err) {
     res.status(500).json({ error: 'Error fetching templates' });
+  }
+});
+
+// GET /api/assessments/:childId  (list for child)
+router.get('/:childId', requireAuth, async (req, res) => {
+  try {
+    const assessments = await Assessment.find({ childId: req.params.childId });
+    res.json(assessments);
+  } catch (err) {
+    res.status(500).json({ error: 'Error fetching assessments' });
+  }
+});
+
+// DELETE /api/assessments/:assessmentId
+router.delete('/:assessmentId', requireAuth, async (req, res) => {
+  try {
+    const assessment = await Assessment.findById(req.params.assessmentId);
+    if (!assessment) return res.status(404).json({ error: 'Assessment not found' });
+
+    // Only the caretaker who created it or an admin can delete
+    if (assessment.caretakerId.toString() !== req.user.id && req.user.role !== 'admin')
+      return res.status(403).json({ error: 'Not allowed' });
+
+    await Assessment.findByIdAndDelete(req.params.assessmentId);
+    res.json({ message: 'Assessment deleted successfully' });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: 'Error deleting assessment' });
   }
 });
 

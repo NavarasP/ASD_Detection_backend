@@ -17,7 +17,8 @@ router.post('/register', async (req, res) => {
     const salt = await bcrypt.genSalt(10);
     const passwordHash = await bcrypt.hash(password, salt);
 
-    const user = new User({ name, email, passwordHash, role: role || 'caregiver' });
+  // make sure the default role matches back-end enums ('caretaker')
+  const user = new User({ name, email, passwordHash, role: role || 'caretaker' });
     await user.save();
 
     const token = jwt.sign({ id: user._id, email: user.email, role: user.role }, process.env.JWT_SECRET, { expiresIn: '30d' });
