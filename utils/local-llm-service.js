@@ -1,0 +1,394 @@
+/**
+ * Local LLM Service for Medical Assessment Analysis
+ * No external APIs - runs locally for data privacy and HIPAA compliance
+ * 
+ * Supported Options:
+ * 1. Ollama (Recommended) - Local LLM server with medical models
+ * 2. Rule-based Expert System - Fallback when LLM unavailable
+ */
+
+const axios = require('axios');
+
+/**
+ * Main entry point for assessment analysis
+ * @param {Object} assessmentData - { type, answers, score, risk, childAge, childInfo }
+ * @returns {Object} { summary, recommendations, keyFindings, riskLevel, confidenceScore }
+ */
+async function analyzeAssessmentWithLocalLLM(assessmentData) {
+  try {
+    console.log('[Local LLM] Starting assessment analysis...');
+    
+    // Try Ollama first (local LLM server)
+    if (await isOllamaAvailable()) {
+      console.log('[Local LLM] Using Ollama for analysis');
+      return await analyzeWithOllama(assessmentData);
+    }
+    
+    // Fallback to advanced rule-based system
+    console.log('[Local LLM] Using rule-based expert system');
+    return await advancedRuleBasedAnalysis(assessmentData);
+    
+  } catch (error) {
+    console.error('[Local LLM] Analysis error:', error.message);
+    // Final fallback
+    return await advancedRuleBasedAnalysis(assessmentData);
+  }
+}
+
+/**
+ * Check if Ollama server is running
+ */
+async function isOllamaAvailable() {
+  try {
+    const ollamaUrl = process.env.OLLAMA_URL || 'http://localhost:11434';
+    const response = await axios.get(`${ollamaUrl}/api/tags`, { timeout: 2000 });
+    return response.status === 200;
+  } catch (error) {
+    return false;
+  }
+}
+
+/**
+ * Analyze assessment using Ollama (local LLM)
+ * Recommended models: llama2, mistral, medllama2, meditron
+ */
+async function analyzeWithOllama(assessmentData) {
+  const ollamaUrl = process.env.OLLAMA_URL || 'http://localhost:11434';
+  const model = process.env.OLLAMA_MODEL || 'llama2'; // Can use medical models
+  
+  const { type, answers, score, risk, childAge, childInfo } = assessmentData;
+  
+  // Build detailed prompt
+  const prompt = buildMedicalPrompt(assessmentData);
+  
+  try {
+    const response = await axios.post(
+      `${ollamaUrl}/api/generate`,
+      {
+        model: model,
+        prompt: prompt,
+        stream: false,
+        options: {
+          temperature: 0.3, // Lower temperature for medical accuracy
+          top_p: 0.9,
+          top_k: 40
+        }
+      },
+      { timeout: 60000 } // 60 second timeout for generation
+    );
+    
+    const generatedText = response.data.response;
+    
+    // Parse LLM response
+    return parseLLMResponse(generatedText, assessmentData);
+    
+  } catch (error) {
+    console.error('[Ollama] Generation error:', error.message);
+    throw error;
+  }
+}
+
+/**
+ * Build medical-grade prompt for assessment analysis
+ */
+function buildMedicalPrompt(assessmentData) {
+  const { type, answers, score, risk, childAge, childInfo } = assessmentData;
+  
+  const ageText = childAge ? `${Math.floor(childAge / 12)} years ${childAge % 12} months` : 'Age not specified';
+  const childName = childInfo?.name || 'the child';
+  const gender = childInfo?.gender || 'not specified';
+  
+  // Format answers for readability
+  const answersText = Object.entries(answers)
+    .map(([question, answer], index) => `Q${index + 1}: ${answer}`)
+    .join('\n');
+  
+  return `You are a pediatric developmental specialist assistant analyzing an autism spectrum disorder (ASD) screening assessment. Provide a professional medical analysis.
+
+PATIENT INFORMATION:
+- Child: ${childName}
+- Age: ${ageText}
+- Gender: ${gender}
+
+ASSESSMENT DETAILS:
+- Type: ${type} (${getAssessmentFullName(type)})
+- Total Score: ${score}
+- Risk Level: ${risk}
+
+RESPONSES:
+${answersText}
+
+INSTRUCTIONS:
+Please provide a comprehensive analysis in the following format:
+
+1. CLINICAL SUMMARY (2-3 sentences):
+Summarize the overall assessment findings and what they indicate.
+
+2. KEY FINDINGS (3-5 bullet points):
+List the most significant observations from the responses.
+
+3. RISK ASSESSMENT:
+Explain the ${risk} risk level in medical context.
+
+4. RECOMMENDATIONS (3-5 specific actions):
+Provide evidence-based next steps for caregivers and healthcare providers.
+
+5. IMPORTANT NOTES:
+Any critical considerations or limitations of this screening.
+
+Keep the tone professional but accessible for parents. Focus on facts and avoid speculation. This is a screening tool, not a diagnostic instrument.`;
+}
+
+/**
+ * Parse LLM response into structured format
+ */
+function parseLLMResponse(text, assessmentData) {
+  // Extract sections using regex
+  const summaryMatch = text.match(/CLINICAL SUMMARY[:\s]+(.*?)(?=KEY FINDINGS|$)/is);
+  const findingsMatch = text.match(/KEY FINDINGS[:\s]+(.*?)(?=RISK ASSESSMENT|$)/is);
+  const recommendationsMatch = text.match(/RECOMMENDATIONS[:\s]+(.*?)(?=IMPORTANT NOTES|$)/is);
+  const notesMatch = text.match(/IMPORTANT NOTES[:\s]+(.*?)$/is);
+  
+  // Extract bullet points
+  const keyFindings = findingsMatch 
+    ? findingsMatch[1]
+        .split('\n')
+        .filter(line => line.trim().match(/^[-•*\d.]/))
+        .map(line => line.replace(/^[-•*\d.)\s]+/, '').trim())
+        .filter(line => line.length > 10)
+    : [];
+  
+  const recommendations = recommendationsMatch
+    ? recommendationsMatch[1]
+        .split('\n')
+        .filter(line => line.trim().match(/^[-•*\d.]/))
+        .map(line => line.replace(/^[-•*\d.)\s]+/, '').trim())
+        .filter(line => line.length > 10)
+    : [];
+  
+  return {
+    summary: summaryMatch ? summaryMatch[1].trim() : text.substring(0, 500),
+    keyFindings: keyFindings.length > 0 ? keyFindings : [
+      'Assessment completed successfully',
+      `Risk level identified: ${assessmentData.risk}`,
+      'Further professional evaluation recommended'
+    ],
+    recommendations: recommendations.length > 0 ? recommendations : [
+      'Consult with a pediatrician or developmental specialist',
+      'Consider comprehensive diagnostic evaluation',
+      'Monitor developmental milestones closely'
+    ],
+    riskLevel: assessmentData.risk,
+    confidenceScore: calculateConfidenceScore(assessmentData),
+    notes: notesMatch ? notesMatch[1].trim() : 'This is a screening tool, not a diagnostic assessment.',
+    generatedBy: 'Local LLM (Ollama)',
+    generatedAt: new Date()
+  };
+}
+
+/**
+ * Advanced rule-based analysis (fallback)
+ * Based on clinical guidelines and research
+ */
+async function advancedRuleBasedAnalysis(assessmentData) {
+  const { type, answers, score, risk, childAge, childInfo } = assessmentData;
+  
+  const ageText = childAge ? `${Math.floor(childAge / 12)} years ${childAge % 12} months` : 'not specified';
+  const childName = childInfo?.name || 'the child';
+  
+  // Generate summary based on assessment type and risk
+  const summary = generateSummary(type, score, risk, ageText, childName);
+  
+  // Generate key findings
+  const keyFindings = generateKeyFindings(type, answers, score, risk);
+  
+  // Generate recommendations
+  const recommendations = generateRecommendations(type, risk, childAge);
+  
+  return {
+    summary,
+    keyFindings,
+    recommendations,
+    riskLevel: risk,
+    confidenceScore: calculateConfidenceScore(assessmentData),
+    notes: 'This screening indicates the need for further evaluation. Only a qualified healthcare professional can make a diagnosis.',
+    generatedBy: 'Rule-Based Expert System',
+    generatedAt: new Date()
+  };
+}
+
+/**
+ * Generate clinical summary
+ */
+function generateSummary(type, score, risk, ageText, childName) {
+  const assessmentName = getAssessmentFullName(type);
+  
+  const summaries = {
+    'High': `${childName} (age: ${ageText}) completed the ${assessmentName} screening with a score of ${score}, indicating a HIGH risk for autism spectrum disorder (ASD). This result suggests significant developmental concerns that warrant immediate professional evaluation. Multiple red flags were identified across key developmental domains including social communication, repetitive behaviors, and sensory processing.`,
+    
+    'Moderate': `${childName} (age: ${ageText}) completed the ${assessmentName} screening with a score of ${score}, indicating a MODERATE risk for autism spectrum disorder (ASD). Several developmental concerns were identified that require follow-up with a qualified healthcare professional. Further assessment is strongly recommended to determine if intervention services are needed.`,
+    
+    'Medium': `${childName} (age: ${ageText}) completed the ${assessmentName} screening with a score of ${score}, indicating a MEDIUM risk for autism spectrum disorder (ASD). Some developmental concerns were noted that should be monitored closely. A comprehensive evaluation by a developmental pediatrician or psychologist is advised to rule out ASD or identify any developmental delays.`,
+    
+    'Low': `${childName} (age: ${ageText}) completed the ${assessmentName} screening with a score of ${score}, indicating a LOW risk for autism spectrum disorder (ASD). The screening did not identify significant concerns at this time. However, continued monitoring of developmental milestones is recommended as part of routine pediatric care.`
+  };
+  
+  return summaries[risk] || summaries['Medium'];
+}
+
+/**
+ * Generate key findings based on answers
+ */
+function generateKeyFindings(type, answers, score, risk) {
+  const findings = [];
+  
+  // Score-based finding
+  findings.push(`Total screening score: ${score} points (${risk} risk category)`);
+  
+  // Analyze answer patterns
+  const totalQuestions = Object.keys(answers).length;
+  const concerningAnswers = Object.values(answers).filter(ans => 
+    ans === 'Yes' || ans === 'Often' || ans === 'Frequently' || ans === 'Always'
+  ).length;
+  
+  if (concerningAnswers > totalQuestions * 0.5) {
+    findings.push(`Significant number of concerning responses (${concerningAnswers}/${totalQuestions} questions flagged)`);
+  } else if (concerningAnswers > totalQuestions * 0.3) {
+    findings.push(`Moderate number of developmental concerns identified (${concerningAnswers}/${totalQuestions} questions flagged)`);
+  } else {
+    findings.push(`Limited concerning responses noted (${concerningAnswers}/${totalQuestions} questions flagged)`);
+  }
+  
+  // Type-specific findings
+  if (type === 'MCHAT' || type === 'M-CHAT') {
+    findings.push('Assessment focused on early autism indicators including social attention, communication, and play behaviors');
+    if (risk === 'High') {
+      findings.push('Multiple critical items failed, suggesting possible deficits in joint attention and social reciprocity');
+    }
+  } else if (type === 'SCQ') {
+    findings.push('Comprehensive screening covering social interaction, communication patterns, and restricted/repetitive behaviors');
+  } else if (type === 'TABC') {
+    findings.push('Thorough assessment of autism behavioral characteristics across multiple developmental domains');
+  }
+  
+  // Risk-specific findings
+  if (risk === 'High') {
+    findings.push('Results indicate urgent need for comprehensive diagnostic evaluation by autism specialists');
+    findings.push('Early intervention services should be considered immediately to support development');
+  } else if (risk === 'Moderate' || risk === 'Medium') {
+    findings.push('Follow-up assessment recommended within 1-3 months to monitor developmental progress');
+  }
+  
+  return findings;
+}
+
+/**
+ * Generate evidence-based recommendations
+ */
+function generateRecommendations(type, risk, childAge) {
+  const recommendations = [];
+  
+  if (risk === 'High') {
+    recommendations.push('URGENT: Schedule comprehensive diagnostic evaluation with developmental pediatrician, psychologist, or autism specialist within 2-4 weeks');
+    recommendations.push('Contact early intervention services immediately (ages 0-3) or school district special education (ages 3+) to begin eligibility assessment');
+    recommendations.push('Request referral to speech-language pathologist and occupational therapist for baseline assessments');
+    recommendations.push('Document specific behavioral concerns with video recordings to share with specialists');
+    recommendations.push('Join autism support groups and connect with other families for resources and emotional support');
+  } else if (risk === 'Moderate' || risk === 'Medium') {
+    recommendations.push('Schedule appointment with developmental pediatrician or child psychologist for comprehensive evaluation within 4-8 weeks');
+    recommendations.push('Request developmental screening during next well-child visit with pediatrician');
+    recommendations.push('Monitor and document developmental milestones, social interactions, and any concerning behaviors');
+    recommendations.push('Consider speech and language evaluation if communication delays are present');
+    recommendations.push('Research early intervention programs and support services available in your area');
+  } else {
+    recommendations.push('Continue routine developmental monitoring at regular pediatric check-ups');
+    recommendations.push('Repeat screening in 6-12 months or if new concerns arise');
+    recommendations.push('Maintain open communication with childcare providers and teachers about developmental progress');
+    recommendations.push('Support healthy development through age-appropriate social interactions and play activities');
+  }
+  
+  // Age-specific recommendations
+  if (childAge && childAge < 36) {
+    recommendations.push('Early intervention is most effective - seek services as soon as possible if concerns exist');
+  }
+  
+  return recommendations;
+}
+
+/**
+ * Calculate confidence score based on assessment quality
+ */
+function calculateConfidenceScore(assessmentData) {
+  let confidence = 0.7; // Base confidence
+  
+  const { answers, score, childAge } = assessmentData;
+  const totalQuestions = Object.keys(answers).length;
+  
+  // More questions = higher confidence
+  if (totalQuestions >= 20) confidence += 0.1;
+  if (totalQuestions >= 30) confidence += 0.1;
+  
+  // Age provided = higher confidence
+  if (childAge) confidence += 0.05;
+  
+  // Score extremes = higher confidence
+  if (score === 0 || score > totalQuestions * 0.7) {
+    confidence += 0.05;
+  }
+  
+  return Math.min(confidence, 0.95); // Cap at 95%
+}
+
+/**
+ * Get full assessment name
+ */
+function getAssessmentFullName(type) {
+  const names = {
+    'MCHAT': 'Modified Checklist for Autism in Toddlers (M-CHAT)',
+    'M-CHAT': 'Modified Checklist for Autism in Toddlers (M-CHAT)',
+    'SCQ': 'Social Communication Questionnaire (SCQ)',
+    'TABC': 'Toddler Autism Behavior Checklist (TABC)',
+    'AQ': 'Autism Quotient (AQ)',
+    'CARS': 'Childhood Autism Rating Scale (CARS)'
+  };
+  
+  return names[type] || type;
+}
+
+/**
+ * Generate comprehensive medical report for doctor
+ */
+async function generateMedicalReport(assessmentData, analysis) {
+  const { childInfo, type, score, risk, childAge, createdAt } = assessmentData;
+  
+  const report = {
+    title: `Autism Screening Assessment Report - ${type}`,
+    patientInfo: {
+      name: childInfo?.name || 'Patient',
+      age: childAge ? `${Math.floor(childAge / 12)} years ${childAge % 12} months` : 'Not specified',
+      gender: childInfo?.gender || 'Not specified',
+      assessmentDate: createdAt || new Date()
+    },
+    assessmentDetails: {
+      type: getAssessmentFullName(type),
+      score: score,
+      riskLevel: risk,
+      confidenceScore: analysis.confidenceScore
+    },
+    clinicalSummary: analysis.summary,
+    keyFindings: analysis.keyFindings,
+    recommendations: analysis.recommendations,
+    notes: analysis.notes,
+    disclaimer: 'This screening assessment is NOT a diagnostic tool. Only qualified healthcare professionals can diagnose autism spectrum disorder. Results should be interpreted in the context of clinical observation and comprehensive evaluation.',
+    generatedBy: analysis.generatedBy,
+    generatedAt: analysis.generatedAt
+  };
+  
+  return report;
+}
+
+module.exports = {
+  analyzeAssessmentWithLocalLLM,
+  generateMedicalReport,
+  isOllamaAvailable
+};

@@ -12,12 +12,13 @@ const adminRoutes = require('./routes/admin');
 const childrenRoutes = require('./routes/children');
 const assessmentRoutes = require('./routes/assessments');
 const mediaRoutes = require('./routes/media');
-const reportRoutes = require('./routes/reports');
+const reportRoutes = require('./routes/reports-enhanced');
 const dashboardRoutes = require('./routes/dashboard');
 const chatRoutes = require('./routes/chat');
 const searchRoutes = require('./routes/search');
 const accessRoutes = require('./routes/access');
 const questionnaireRoutes = require('./routes/questionnaires');
+const llmRoutes = require('./routes/llm');
 
 const app = express();
 
@@ -68,6 +69,7 @@ app.use('/api/chat', chatRoutes);
 app.use('/api/search', searchRoutes);
 app.use('/api/access', accessRoutes);
 app.use('/api/questionnaires', questionnaireRoutes);
+app.use('/api/llm', llmRoutes);
 
 // Global Error Handler
 app.use((err, req, res, next) => {
