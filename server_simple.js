@@ -6,19 +6,6 @@ const helmet = require('helmet');
 const http = require('http');
 const { initChatServer } = require('./chatServer');
 
-const authRoutes = require('./routes/auth');
-const responseRoutes = require('./routes/response');
-const adminRoutes = require('./routes/admin');
-const childrenRoutes = require('./routes/children');
-const assessmentRoutes = require('./routes/assessments');
-const mediaRoutes = require('./routes/media');
-const reportRoutes = require('./routes/reports');
-const dashboardRoutes = require('./routes/dashboard');
-const chatRoutes = require('./routes/chat');
-const searchRoutes = require('./routes/search');
-const accessRoutes = require('./routes/access');
-const questionnaireRoutes = require('./routes/questionnaires');
-
 const app = express();
 
 // Security + Middleware
@@ -53,21 +40,7 @@ const connectMongoDB = async () => {
 connectMongoDB();
 
 // Health check
-app.get('/', (req, res) => res.send({ status: 'ok', service: 'predict-asd-backend' }));
-
-// Routes
-app.use('/api/auth', authRoutes);
-app.use('/api/responses', responseRoutes);
-app.use('/api/admin', adminRoutes);
-app.use('/api/children', childrenRoutes);
-app.use('/api/assessments', assessmentRoutes);
-app.use('/api/media', mediaRoutes);
-app.use('/api/reports', reportRoutes);
-app.use('/api/dashboard', dashboardRoutes);
-app.use('/api/chat', chatRoutes);
-app.use('/api/search', searchRoutes);
-app.use('/api/access', accessRoutes);
-app.use('/api/questionnaires', questionnaireRoutes);
+app.get('/', (req, res) => res.send({ status: 'ok', service: 'predict-asd-backend', message: 'Server is running!' }));
 
 // Global Error Handler
 app.use((err, req, res, next) => {
@@ -78,11 +51,12 @@ app.use((err, req, res, next) => {
 // HTTP + Socket Server
 const PORT = process.env.PORT || 8002;
 const server = http.createServer(app);
-initChatServer(server);
+//initChatServer(server);  // Temporarily disabled for testing
 
 server.listen(PORT, () => {
   console.log(`🚀 Server running on http://localhost:${PORT}`);
-  console.log(`💬 WebSocket chat active on ws://localhost:${PORT}`);
+  //console.log(`💬 WebSocket chat active on ws://localhost:${PORT}`);
+  console.log(`✨ Test it: http://localhost:${PORT}`);
 });
 
 // Handle uncaught exceptions
