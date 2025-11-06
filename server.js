@@ -29,10 +29,23 @@ app.use(express.json());
 // CORS Setup
 const allowedOrigins = [
   process.env.FRONTEND_ORIGIN || 'http://localhost:3000',
+  'http://localhost:3001',
   'https://predictasd.vercel.app',
 ];
+
 app.use(cors({
-  origin: allowedOrigins,
+  origin: function (origin, callback) {
+    // Allow requests with no origin (like mobile apps or curl) and same-origin
+    if (!origin) return callback(null, true);
+    if (allowedOrigins.includes(origin)) return callback(null, true);
+    // Allow any localhost origin for development (e.g., 3000-3010)
+    const localhostMatch = /^http:\/\/localhost:(\d+)$/.exec(origin);
+    if (localhostMatch) {
+      const port = parseInt(localhostMatch[1], 10);
+      if (port >= 3000 && port <= 3010) return callback(null, true);
+    }
+    return callback(new Error('Not allowed by CORS'));
+  },
   credentials: true,
   methods: ['GET', 'POST', 'PUT', 'DELETE']
 }));
