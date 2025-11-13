@@ -8,43 +8,96 @@ const { analyzeAssessment } = require('../utils/llm-service');
 
 // Dynamic scoring function based on questionnaire's scoringRules
 function computeScore(answers, questionnaire) {
-  // Count "yes" answers (assuming standard yes/no/sometimes format)
-  const yesCount = Object.values(answers).filter(a => a === 'yes').length;
-  
-  // Find matching risk level from scoring rules
+  const answerValues = Object.values(answers || {});
+
+  // Helper: detect numeric-coded options like "0 Never", "1 Sometimes" and build a map
+  const buildOptionScoreMap = (opts = []) => {
+    const map = new Map();
+    opts.forEach((opt, idx) => {
+      if (typeof opt === 'string') {
+        const m = opt.match(/^\s*(\d+)\s+/);
+        if (m) {
+          map.set(opt, Number(m[1]));
+        } else {
+          map.set(opt, idx); // fallback to index scoring
+        }
+      }
+    });
+    return map;
+  };
+
+  let totalScore = 0;
+
+  if (answerValues.every(v => typeof v === 'string' && (v.toLowerCase() === 'yes' || v.toLowerCase() === 'no'))) {
+    // Yes/No style → count yes
+    totalScore = answerValues.filter(a => (a || '').toLowerCase() === 'yes').length;
+  } else if (Array.isArray(questionnaire.answerOptions) && questionnaire.answerOptions.length > 0) {
+    // Multi-choice using shared answerOptions across questions
+    const scoreMap = buildOptionScoreMap(questionnaire.answerOptions);
+    totalScore = answerValues.reduce((sum, val) => {
+      if (typeof val !== 'string') return sum;
+      // Try exact match first
+      if (scoreMap.has(val)) return sum + (scoreMap.get(val) || 0);
+      // If not exact, try case-insensitive match
+      const found = [...scoreMap.keys()].find(k => k.toLowerCase() === val.toLowerCase());
+      if (found) return sum + (scoreMap.get(found) || 0);
+      return sum;
+    }, 0);
+  } else {
+    // Fallback: try parse numeric strings (e.g., '0', '1', '2')
+    totalScore = answerValues.reduce((sum, v) => {
+      const n = Number(v);
+      return Number.isFinite(n) ? sum + n : sum;
+    }, 0);
+  }
+
+  // Determine risk via scoringRules if present, else fallback thresholds
   let risk = 'Low';
   if (questionnaire.scoringRules && questionnaire.scoringRules.length > 0) {
     for (const rule of questionnaire.scoringRules) {
-      const inRange = yesCount >= rule.minScore && 
-        (rule.maxScore === undefined || yesCount <= rule.maxScore);
-      if (inRange) {
-        risk = rule.riskLevel;
-        break;
-      }
+      const inRange = totalScore >= rule.minScore &&
+        (rule.maxScore === undefined || totalScore <= rule.maxScore);
+      if (inRange) { risk = rule.riskLevel; break; }
     }
   } else {
-    // Fallback to old MCHAT-style scoring
-    if (yesCount >= 3 && yesCount <= 6) risk = 'Medium';
-    else if (yesCount > 6) risk = 'High';
+    // Generic fallback thresholds for yes/no-like totals
+    if (totalScore >= 3 && totalScore <= 6) risk = 'Medium';
+    else if (totalScore > 6) risk = 'High';
   }
-  
-  return { score: yesCount, risk };
+
+  return { score: totalScore, risk };
 }
 
 // POST /api/assessments/add
 router.post('/add', requireAuth, async (req, res) => {
   const { childId, questionnaireId, answers } = req.body;
+  console.log('[Assessment] Received submission:', { childId, questionnaireId, answerCount: Object.keys(answers || {}).length });
+  
   try {
+    // Validate required fields
+    if (!childId || !questionnaireId || !answers) {
+      console.error('[Assessment] Missing required fields:', { childId: !!childId, questionnaireId: !!questionnaireId, answers: !!answers });
+      return res.status(400).json({ error: 'childId, questionnaireId, and answers are required' });
+    }
+
     // Fetch questionnaire to get scoring rules and name
     const questionnaire = await Questionnaire.findById(questionnaireId);
     if (!questionnaire) {
+      console.error('[Assessment] Questionnaire not found:', questionnaireId);
       return res.status(404).json({ error: 'Questionnaire not found' });
     }
+    console.log('[Assessment] Found questionnaire:', questionnaire.name, 'with', questionnaire.questions.length, 'questions');
     
     const { score, risk } = computeScore(answers, questionnaire);
+    console.log('[Assessment] Computed score:', score, 'risk:', risk);
     
     // Get child info for LLM context
     const child = await Child.findById(childId);
+    if (!child) {
+      console.error('[Assessment] Child not found:', childId);
+      return res.status(404).json({ error: 'Child not found' });
+    }
+    console.log('[Assessment] Found child:', child.name);
     const childAge = child && child.dob 
       ? Math.floor((Date.now() - new Date(child.dob).getTime()) / (1000 * 60 * 60 * 24 * 30))
       : null;
@@ -82,6 +135,7 @@ router.post('/add', requireAuth, async (req, res) => {
 
     // Save assessment immediately (without LLM analysis initially)
     await assessment.save();
+    console.log('[Assessment] Saved assessment:', assessment._id);
 
     // Wait for LLM analysis (with timeout)
     try {
@@ -91,16 +145,19 @@ router.post('/add', requireAuth, async (req, res) => {
       ]);
       // Fetch the updated assessment with LLM analysis
       const updatedAssessment = await Assessment.findById(assessment._id).populate('questionnaireId');
+      console.log('[Assessment] Returning with LLM analysis:', !!updatedAssessment.llmAnalysis);
       res.json(updatedAssessment);
     } catch (timeoutErr) {
       // If LLM takes too long, return assessment without analysis
       // Analysis will be available on next fetch
+      console.log('[Assessment] LLM timeout, returning without analysis');
       const populatedAssessment = await Assessment.findById(assessment._id).populate('questionnaireId');
       res.json(populatedAssessment);
     }
   } catch (err) {
-    console.error(err);
-    res.status(500).json({ error: 'Error saving assessment' });
+    console.error('[Assessment] Error saving assessment:', err.message);
+    console.error(err.stack);
+    res.status(500).json({ error: 'Error saving assessment: ' + err.message });
   }
 });
 // GET /api/assessments/details/:assessmentId (details)

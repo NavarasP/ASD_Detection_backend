@@ -1,6 +1,7 @@
 const express = require('express');
 const router = express.Router();
 const Child = require('../models/Child');
+const Assessment = require('../models/Assessment');
 const { requireAuth } = require('../middleware/auth');
 
 // POST /api/children/add
@@ -31,6 +32,45 @@ router.get('/my', requireAuth, async (req, res) => {
     res.json(children);
   } catch (err) {
     res.status(500).json({ error: 'Error fetching children' });
+  }
+});
+
+// GET /api/children/authorized (for doctors)
+router.get('/authorized', requireAuth, async (req, res) => {
+  try {
+    if (req.user.role !== 'doctor') {
+      return res.status(403).json({ error: 'Access denied. Only doctors can use this endpoint.' });
+    }
+
+    const singleMode = String(process.env.SINGLE_DOCTOR_MODE).toLowerCase() === 'true';
+
+    // In single doctor mode return all children automatically
+    const baseFilter = singleMode ? {} : { authorizedDoctors: req.user.id };
+    const children = await Child.find(baseFilter)
+      .populate('caretakerId', 'name email')
+      .sort({ createdAt: -1 });
+
+    // Enrich with latest assessment info & risk
+    const enriched = await Promise.all(children.map(async (child) => {
+      const latest = await Assessment.find({ childId: child._id })
+        .sort({ createdAt: -1 })
+        .limit(1);
+      const last = latest[0];
+      const obj = child.toObject();
+      if (last) {
+        obj.lastAssessmentDate = last.createdAt;
+        obj.riskLevel = last.risk;
+        obj.status = 'completed';
+      } else {
+        obj.status = 'pending';
+      }
+      return obj;
+    }));
+
+    res.json({ success: true, data: enriched });
+  } catch (err) {
+    console.error('Error fetching authorized children:', err);
+    res.status(500).json({ error: 'Error fetching authorized children' });
   }
 });
 
@@ -85,6 +125,28 @@ router.get('/:childId', requireAuth, async (req, res) => {
     res.status(500).json({ error: 'Error fetching child' });
   }
 });
+
+// GET /api/children/:childId/authorized-doctors
+router.get('/:childId/authorized-doctors', requireAuth, async (req, res) => {
+  try {
+    const child = await Child.findById(req.params.childId).populate('authorizedDoctors', 'name email phone');
+    
+    if (!child) {
+      return res.status(404).json({ error: 'Child not found' });
+    }
+
+    // Only caretaker can view authorized doctors list
+    if (child.caretakerId.toString() !== req.user.id && req.user.role !== 'admin') {
+      return res.status(403).json({ error: 'Access denied' });
+    }
+
+    res.json(child.authorizedDoctors || []);
+  } catch (err) {
+    console.error('Error fetching authorized doctors:', err);
+    res.status(500).json({ error: 'Error fetching authorized doctors' });
+  }
+});
+
   } catch (err) {
     res.status(500).json({ error: 'Error deleting child' });
   }

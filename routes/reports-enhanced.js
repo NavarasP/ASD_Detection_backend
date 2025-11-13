@@ -3,6 +3,7 @@ const router = express.Router();
 const Assessment = require('../models/Assessment');
 const Report = require('../models/Report');
 const Child = require('../models/Child');
+const Questionnaire = require('../models/Questionnaire');
 const { requireAuth } = require('../middleware/auth');
 const { analyzeAssessmentWithLocalLLM, generateMedicalReport } = require('../utils/local-llm-service');
 
@@ -279,5 +280,159 @@ This report is confidential and intended for medical professionals and authorize
 
   return text;
 }
+
+/**
+ * POST /api/reports/generate-combined
+ * Generate comprehensive report from ALL assessments for a child
+ * Accessible to both caretakers and doctors
+ */
+router.post('/generate-combined', requireAuth, async (req, res) => {
+  const { childId } = req.body;
+  console.log('[CombinedReport] Request for childId:', childId, 'by user:', req.user.id);
+
+  try {
+    if (!childId) {
+      return res.status(400).json({ error: 'childId is required' });
+    }
+
+    // Fetch child
+    const child = await Child.findById(childId);
+    if (!child) {
+      return res.status(404).json({ error: 'Child not found' });
+    }
+
+    // Verify access (caretaker must own child, or be a doctor/admin)
+    const isCaretaker = child.caretakerId.toString() === req.user.id;
+    const isDoctor = req.user.role === 'doctor';
+    const isAdmin = req.user.role === 'admin';
+
+    if (!isCaretaker && !isDoctor && !isAdmin) {
+      return res.status(403).json({ error: 'You do not have access to this child' });
+    }
+
+    // Fetch ALL assessments for this child
+    const assessments = await Assessment.find({ childId })
+      .populate('questionnaireId')
+      .sort({ createdAt: 1 });
+
+    if (assessments.length === 0) {
+      return res.status(400).json({ error: 'No assessments found for this child' });
+    }
+
+    console.log('[CombinedReport] Found', assessments.length, 'assessments');
+
+    // Calculate child age
+    const childAge = child.dob 
+      ? Math.floor((Date.now() - new Date(child.dob).getTime()) / (1000 * 60 * 60 * 24 * 30.44))
+      : null;
+
+    // Build combined analysis data
+    const combinedData = {
+      child: {
+        name: child.name,
+        age: childAge,
+        dob: child.dob,
+        gender: child.gender
+      },
+      assessments: assessments.map(a => ({
+        type: a.questionnaireId?.name || a.type,
+        fullName: a.questionnaireId?.fullName || '',
+        score: a.score,
+        risk: a.risk,
+        date: a.createdAt,
+        llmAnalysis: a.llmAnalysis,
+        answerCount: Object.keys(a.answers || {}).length
+      }))
+    };
+
+    // Generate combined report text
+    let reportText = `COMPREHENSIVE AUTISM SCREENING REPORT\n${'='.repeat(70)}\n\n`;
+    reportText += `CHILD INFORMATION:\n`;
+    reportText += `Name: ${child.name}\n`;
+    reportText += `Age: ${childAge ? Math.floor(childAge / 12) + ' years ' + (childAge % 12) + ' months' : 'Unknown'}\n`;
+    reportText += `Gender: ${child.gender}\n`;
+    reportText += `Date of Birth: ${new Date(child.dob).toLocaleDateString()}\n\n`;
+    reportText += `${'='.repeat(70)}\n\n`;
+
+    reportText += `ASSESSMENTS COMPLETED: ${assessments.length}\n\n`;
+
+    // Add each assessment summary
+    assessments.forEach((assessment, idx) => {
+      reportText += `${idx + 1}. ${assessment.questionnaireId?.fullName || assessment.type}\n`;
+      reportText += `   Date: ${new Date(assessment.createdAt).toLocaleDateString()}\n`;
+      reportText += `   Score: ${assessment.score}\n`;
+      reportText += `   Risk Level: ${assessment.risk}\n`;
+      
+      if (assessment.llmAnalysis?.summary) {
+        reportText += `   Analysis: ${assessment.llmAnalysis.summary}\n`;
+      }
+      
+      if (assessment.llmAnalysis?.recommendations) {
+        reportText += `   Recommendations: ${assessment.llmAnalysis.recommendations}\n`;
+      }
+      
+      reportText += `\n`;
+    });
+
+    reportText += `${'='.repeat(70)}\n\n`;
+
+    // Overall risk assessment
+    const highRiskCount = assessments.filter(a => a.risk === 'High').length;
+    const mediumRiskCount = assessments.filter(a => a.risk === 'Medium' || a.risk === 'Moderate').length;
+    const lowRiskCount = assessments.filter(a => a.risk === 'Low').length;
+
+    reportText += `OVERALL ASSESSMENT SUMMARY:\n\n`;
+    reportText += `High Risk Assessments: ${highRiskCount}\n`;
+    reportText += `Medium Risk Assessments: ${mediumRiskCount}\n`;
+    reportText += `Low Risk Assessments: ${lowRiskCount}\n\n`;
+
+    if (highRiskCount > 0) {
+      reportText += `RECOMMENDATION: Immediate consultation with a pediatric specialist is recommended.\n`;
+      reportText += `Multiple assessments indicate elevated risk markers for autism spectrum disorder.\n`;
+    } else if (mediumRiskCount > 0) {
+      reportText += `RECOMMENDATION: Follow-up assessment recommended within 3-6 months.\n`;
+      reportText += `Some risk markers present - monitoring and early intervention may be beneficial.\n`;
+    } else {
+      reportText += `RECOMMENDATION: Continue routine developmental monitoring.\n`;
+      reportText += `Current assessments show low risk indicators.\n`;
+    }
+
+    reportText += `\n${'='.repeat(70)}\n\n`;
+    reportText += `NEXT STEPS:\n`;
+    reportText += `1. Share this report with your child's healthcare provider\n`;
+    reportText += `2. Discuss findings and recommendations during next visit\n`;
+    reportText += `3. Consider early intervention services if recommended\n`;
+    reportText += `4. Continue monitoring developmental milestones\n\n`;
+    reportText += `Report Generated: ${new Date().toLocaleString()}\n`;
+    reportText += `Generated for: ${req.user.role}\n\n`;
+    reportText += `This is an automated screening report. Clinical diagnosis requires professional evaluation.\n`;
+
+    // Save the combined report
+    const report = new Report({
+      childId: child._id,
+      doctorId: req.user.id,
+      text: reportText,
+      createdAt: new Date()
+    });
+
+    await report.save();
+    console.log('[CombinedReport] Saved report:', report._id);
+
+    res.json({
+      success: true,
+      report: report,
+      assessmentCount: assessments.length,
+      summary: {
+        highRisk: highRiskCount,
+        mediumRisk: mediumRiskCount,
+        lowRisk: lowRiskCount
+      }
+    });
+
+  } catch (err) {
+    console.error('[CombinedReport] Error:', err);
+    res.status(500).json({ error: 'Failed to generate combined report: ' + err.message });
+  }
+});
 
 module.exports = router;

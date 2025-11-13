@@ -179,4 +179,94 @@ router.get('/all', requireAuth, async (req, res) => {
   }
 });
 
+// POST /api/access/grant - Caretaker directly grants access via email
+router.post('/grant', requireAuth, async (req, res) => {
+  try {
+    const { childId, doctorEmail } = req.body;
+    const caretakerId = req.user.id;
+
+    console.log('[Access Grant] Request:', { childId, doctorEmail, caretakerId });
+
+    if (!childId || !doctorEmail) {
+      return res.status(400).json({ error: 'childId and doctorEmail are required' });
+    }
+
+    // Verify child belongs to caretaker
+    const child = await Child.findById(childId);
+    if (!child) {
+      return res.status(404).json({ error: 'Child not found' });
+    }
+
+    if (child.caretakerId.toString() !== caretakerId && req.user.role !== 'admin') {
+      return res.status(403).json({ error: 'You do not own this child profile' });
+    }
+
+    // Find doctor by email
+    const doctor = await User.findOne({ email: doctorEmail.toLowerCase(), role: 'doctor' });
+    if (!doctor) {
+      return res.status(404).json({ error: 'Doctor not found. Please verify the email address.' });
+    }
+
+    // Check if already authorized
+    if (child.authorizedDoctors.some(docId => docId.toString() === doctor._id.toString())) {
+      return res.status(400).json({ error: 'This doctor already has access' });
+    }
+
+    // Add doctor to authorized list
+    child.authorizedDoctors.push(doctor._id);
+    await child.save();
+
+    console.log('[Access Grant] Success:', doctor.email);
+
+    res.json({ 
+      message: 'Access granted successfully',
+      doctor: {
+        _id: doctor._id,
+        name: doctor.name,
+        email: doctor.email
+      }
+    });
+  } catch (err) {
+    console.error('[Access Grant] Error:', err);
+    res.status(500).json({ error: 'Server error: ' + err.message });
+  }
+});
+
+// POST /api/access/revoke - Caretaker revokes doctor access
+router.post('/revoke', requireAuth, async (req, res) => {
+  try {
+    const { childId, doctorId } = req.body;
+    const caretakerId = req.user.id;
+
+    console.log('[Access Revoke] Request:', { childId, doctorId, caretakerId });
+
+    if (!childId || !doctorId) {
+      return res.status(400).json({ error: 'childId and doctorId are required' });
+    }
+
+    // Verify child belongs to caretaker
+    const child = await Child.findById(childId);
+    if (!child) {
+      return res.status(404).json({ error: 'Child not found' });
+    }
+
+    if (child.caretakerId.toString() !== caretakerId && req.user.role !== 'admin') {
+      return res.status(403).json({ error: 'You do not own this child profile' });
+    }
+
+    // Remove doctor from authorized list
+    child.authorizedDoctors = child.authorizedDoctors.filter(
+      docId => docId.toString() !== doctorId
+    );
+    await child.save();
+
+    console.log('[Access Revoke] Success');
+
+    res.json({ message: 'Access revoked successfully' });
+  } catch (err) {
+    console.error('[Access Revoke] Error:', err);
+    res.status(500).json({ error: 'Server error: ' + err.message });
+  }
+});
+
 module.exports = router;

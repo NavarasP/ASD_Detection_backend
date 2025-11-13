@@ -491,3 +491,17 @@ The server will start on http://localhost:4000 (or the specified PORT in .env).
 3. Commit your changes
 4. Push to the branch
 5. Create a Pull Request
+
+## Single Doctor Mode
+
+Set `SINGLE_DOCTOR_MODE=true` in `.env` to allow the single doctor to view all children without per-child authorization. The endpoint `GET /api/children/authorized` will return all children in this mode and includes enrichment fields: `riskLevel`, `status`, and `lastAssessmentDate` when available.
+
+## Chat Rooms
+
+- Frontend connects to Socket.IO at `NEXT_PUBLIC_SOCKET_URL` (defaults to `http://localhost:8002`).
+- Room naming:
+  - Per-child: `child_<childId>`
+  - Global room (no child selected or single-doctor universal chat): `global_chat`
+- Events:
+  - `join_room` with a plain room string (server also accepts `{ room: string }`)
+  - `chat_message` payload: `{ room, message, sender, timestamp }`

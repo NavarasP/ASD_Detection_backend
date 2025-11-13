@@ -5,7 +5,7 @@ const AssessmentSchema = new mongoose.Schema({
   caretakerId: { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true },
   questionnaireId: { type: mongoose.Schema.Types.ObjectId, ref: 'Questionnaire', required: true },
   // Keep type for backward compatibility with existing assessments
-  type: { type: String, enum: ['MCHAT', 'SCQ', 'TABC'], default: 'MCHAT' },
+  type: { type: String, default: 'MCHAT' },
   answers: { type: Object, required: true },
   score: { type: Number },
   risk: { type: String, enum: ['Low', 'Medium', 'Moderate', 'High'] },
