@@ -112,48 +112,13 @@ router.post('/add', requireAuth, async (req, res) => {
       risk
     });
 
-    // Generate LLM analysis asynchronously (don't block the response)
-    const analysisPromise = analyzeAssessment({
-      type: questionnaire.name,
-      answers,
-      score,
-      risk,
-      childAge
-    }).then(analysis => {
-      // Update assessment with LLM analysis
-      assessment.llmAnalysis = {
-        summary: analysis.summary,
-        recommendations: analysis.recommendations,
-        keyFindings: analysis.keyFindings,
-        generatedAt: new Date()
-      };
-      return assessment.save();
-    }).catch(err => {
-      console.error('[Assessment] LLM analysis failed:', err);
-      // Continue without LLM analysis if it fails
-    });
-
-    // Save assessment immediately (without LLM analysis initially)
+    // Save assessment immediately without LLM analysis
     await assessment.save();
-    console.log('[Assessment] Saved assessment:', assessment._id);
+    console.log('[Assessment] Saved assessment (core data only):', assessment._id);
 
-    // Wait for LLM analysis (with timeout)
-    try {
-      await Promise.race([
-        analysisPromise,
-        new Promise((_, reject) => setTimeout(() => reject(new Error('Timeout')), 5000))
-      ]);
-      // Fetch the updated assessment with LLM analysis
-      const updatedAssessment = await Assessment.findById(assessment._id).populate('questionnaireId');
-      console.log('[Assessment] Returning with LLM analysis:', !!updatedAssessment.llmAnalysis);
-      res.json(updatedAssessment);
-    } catch (timeoutErr) {
-      // If LLM takes too long, return assessment without analysis
-      // Analysis will be available on next fetch
-      console.log('[Assessment] LLM timeout, returning without analysis');
-      const populatedAssessment = await Assessment.findById(assessment._id).populate('questionnaireId');
-      res.json(populatedAssessment);
-    }
+    // Return saved assessment immediately - LLM analysis can be generated later by doctor
+    const populatedAssessment = await Assessment.findById(assessment._id).populate('questionnaireId');
+    res.json(populatedAssessment);
   } catch (err) {
     console.error('[Assessment] Error saving assessment:', err.message);
     console.error(err.stack);

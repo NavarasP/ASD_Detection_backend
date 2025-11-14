@@ -116,11 +116,14 @@ router.post('/generate-from-assessment', requireAuth, async (req, res) => {
  * Add manual report (existing functionality)
  */
 router.post('/add', requireAuth, async (req, res) => {
+  console.log('[Reports-Enhanced] Add report request from user:', req.user.id, 'role:', req.user.role);
   if (req.user.role !== 'doctor') {
+    console.log('[Reports-Enhanced] Access denied - not a doctor');
     return res.status(403).json({ error: 'Doctor only' });
   }
   
   const { childId, text, pdfUrl, assessmentId } = req.body;
+  console.log('[Reports-Enhanced] Report data:', { childId, textLength: text?.length, pdfUrl, assessmentId });
   
   try {
     const report = new Report({ 
@@ -131,10 +134,12 @@ router.post('/add', requireAuth, async (req, res) => {
       assessmentId 
     });
     await report.save();
+    console.log('[Reports-Enhanced] Report saved successfully:', report._id);
     res.json(report);
   } catch (err) {
-    console.error('[Reports] Add error:', err);
-    res.status(500).json({ error: 'Error adding report' });
+    console.error('[Reports-Enhanced] Add error:', err.message);
+    console.error('[Reports-Enhanced] Stack:', err.stack);
+    res.status(500).json({ error: 'Error adding report: ' + err.message });
   }
 });
 

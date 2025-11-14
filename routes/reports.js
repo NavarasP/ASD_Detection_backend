@@ -5,15 +5,22 @@ const { requireAuth } = require('../middleware/auth');
 
 // POST /api/reports/add
 router.post('/add', requireAuth, async (req, res) => {
-  if (req.user.role !== 'doctor') return res.status(403).json({ error: 'Doctor only' });
+  console.log('[Reports] Add report request from user:', req.user.id, 'role:', req.user.role);
+  if (req.user.role !== 'doctor') {
+    console.log('[Reports] Access denied - not a doctor');
+    return res.status(403).json({ error: 'Doctor only' });
+  }
   const { childId, text, pdfUrl } = req.body;
+  console.log('[Reports] Report data:', { childId, textLength: text?.length, pdfUrl });
   try {
     const report = new Report({ doctorId: req.user.id, childId, text, pdfUrl });
     await report.save();
+    console.log('[Reports] Report saved successfully:', report._id);
     // Return the created report object directly to match frontend expectations
     res.json(report);
   } catch (err) {
-    res.status(500).json({ error: 'Error adding report' });
+    console.error('[Reports] Error saving report:', err.message);
+    res.status(500).json({ error: 'Error adding report: ' + err.message });
   }
 });
 
