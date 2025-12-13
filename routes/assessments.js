@@ -102,6 +102,16 @@ router.post('/add', requireAuth, async (req, res) => {
       ? Math.floor((Date.now() - new Date(child.dob).getTime()) / (1000 * 60 * 60 * 24 * 30))
       : null;
 
+    // Calculate attemptNumber - find the highest attempt for this questionnaire and increment
+    const existingAssessments = await Assessment.find({ 
+      childId, 
+      questionnaireId 
+    }).sort({ attemptNumber: -1 }).limit(1);
+    
+    const attemptNumber = existingAssessments.length > 0 
+      ? (existingAssessments[0].attemptNumber || 1) + 1 
+      : 1;
+
     const assessment = new Assessment({
       childId,
       caretakerId: req.user.id,
@@ -110,6 +120,7 @@ router.post('/add', requireAuth, async (req, res) => {
       answers,
       score,
       risk,
+      attemptNumber, // Assign calculated attempt number
       // Track progress
       progress: {
         completedQuestions: Object.keys(answers).length,

@@ -100,6 +100,10 @@ router.delete('/:childId', requireAuth, async (req, res) => {
     });
     if (!deleted) return res.status(404).json({ error: 'Child not found' });
     res.json({ message: 'Child removed' });
+  } catch (err) {
+    res.status(500).json({ error: 'Error deleting child' });
+  }
+});
 
 // GET /api/children/:childId  (single child)
 router.get('/:childId', requireAuth, async (req, res) => {
@@ -144,11 +148,6 @@ router.get('/:childId/authorized-doctors', requireAuth, async (req, res) => {
   } catch (err) {
     console.error('Error fetching authorized doctors:', err);
     res.status(500).json({ error: 'Error fetching authorized doctors' });
-  }
-});
-
-  } catch (err) {
-    res.status(500).json({ error: 'Error deleting child' });
   }
 });
 

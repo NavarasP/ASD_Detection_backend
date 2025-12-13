@@ -19,6 +19,8 @@ const searchRoutes = require('./routes/search');
 const accessRoutes = require('./routes/access');
 const questionnaireRoutes = require('./routes/questionnaires');
 const llmRoutes = require('./routes/llm');
+const gameRoutes = require('./routes/games');
+const handEyeGameRoutes = require('./routes/hand-eye-game');
 
 const app = express();
 
@@ -83,6 +85,8 @@ app.use('/api/search', searchRoutes);
 app.use('/api/access', accessRoutes);
 app.use('/api/questionnaires', questionnaireRoutes);
 app.use('/api/llm', llmRoutes);
+app.use(gameRoutes);
+app.use(handEyeGameRoutes);
 
 // Global Error Handler
 app.use((err, req, res, next) => {

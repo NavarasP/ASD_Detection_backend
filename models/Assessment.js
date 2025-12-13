@@ -15,6 +15,8 @@ const AssessmentSchema = new mongoose.Schema({
     keyFindings: [{ type: String }], // Array of key findings
     generatedAt: { type: Date }
   },
+  // Attempt/Round tracking - which session/round this assessment belongs to
+  attemptNumber: { type: Number, default: 1 },
   // Progress tracking fields
   progress: {
     completedQuestions: { type: Number, default: 0 }, // e.g., 18 questions answered
