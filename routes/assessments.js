@@ -109,7 +109,14 @@ router.post('/add', requireAuth, async (req, res) => {
       type: questionnaire.name, // Store questionnaire name for backward compatibility
       answers,
       score,
-      risk
+      risk,
+      // Track progress
+      progress: {
+        completedQuestions: Object.keys(answers).length,
+        totalQuestions: questionnaire.questions.length,
+        lastAnsweredAt: new Date(),
+        status: 'completed' // Mark as completed when submitted
+      }
     });
 
     // Save assessment immediately without LLM analysis
@@ -222,5 +229,110 @@ router.post('/:assessmentId/analyze', requireAuth, async (req, res) => {
   }
 });
 
+
+// GET /api/assessments/progress/:childId - Get progress tracking data
+router.get('/progress/:childId', requireAuth, async (req, res) => {
+  try {
+    const { childId } = req.params;
+    
+    // Fetch all assessments for this child
+    const assessments = await Assessment.find({ childId })
+      .populate('questionnaireId')
+      .sort({ createdAt: -1 });
+
+    if (!assessments || assessments.length === 0) {
+      return res.json({
+        byQuestionnaire: {},
+        totalAttempts: 0,
+        childId
+      });
+    }
+
+    // Group assessments by questionnaire
+    const byQuestionnaire = {};
+
+    assessments.forEach((assessment) => {
+      const qId = assessment.questionnaireId._id.toString();
+      const qName = assessment.questionnaireId.name;
+
+      if (!byQuestionnaire[qId]) {
+        byQuestionnaire[qId] = {
+          questionnaireId: qId,
+          questionnaireName: qName,
+          attempts: [],
+          scores: [],
+          risks: [],
+          averageScore: 0,
+          trend: 'stable',
+          latestScore: null,
+          latestRisk: null,
+          completionRate: 0,
+          attemptCount: 0
+        };
+      }
+
+      byQuestionnaire[qId].attempts.push({
+        _id: assessment._id,
+        date: assessment.createdAt,
+        score: assessment.score,
+        risk: assessment.risk,
+        progress: assessment.progress
+      });
+
+      byQuestionnaire[qId].scores.push(assessment.score);
+      byQuestionnaire[qId].risks.push(assessment.risk);
+    });
+
+    // Calculate statistics for each questionnaire
+    Object.keys(byQuestionnaire).forEach((qId) => {
+      const q = byQuestionnaire[qId];
+      const scores = q.scores;
+
+      // Calculate average score
+      q.averageScore = scores.length > 0 
+        ? (scores.reduce((a, b) => a + b, 0) / scores.length).toFixed(2)
+        : 0;
+
+      // Determine trend
+      if (scores.length >= 2) {
+        const recent = scores.slice(0, Math.min(3, scores.length));
+        const older = scores.slice(Math.min(3, scores.length));
+        const recentAvg = recent.reduce((a, b) => a + b, 0) / recent.length;
+        const olderAvg = older.length > 0 
+          ? older.reduce((a, b) => a + b, 0) / older.length
+          : recentAvg;
+
+        if (recentAvg < olderAvg - 1) {
+          q.trend = 'improving';
+        } else if (recentAvg > olderAvg + 1) {
+          q.trend = 'worsening';
+        } else {
+          q.trend = 'stable';
+        }
+      }
+
+      // Latest values
+      q.latestScore = scores[0] ?? null;
+      q.latestRisk = q.risks[0] ?? null;
+
+      // Completion rate (assume completed if status is 'completed')
+      const completedCount = q.attempts.filter((a) => a.progress?.status === 'completed').length;
+      q.completionRate = ((completedCount / q.attempts.length) * 100).toFixed(0);
+      q.attemptCount = q.attempts.length;
+
+      // Sort attempts by date (descending)
+      q.attempts.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
+    });
+
+    res.json({
+      byQuestionnaire,
+      totalAttempts: assessments.length,
+      childId
+    });
+  } catch (err) {
+    console.error('[Progress] Error fetching progress:', err);
+    res.status(500).json({ error: 'Error fetching progress data' });
+  }
+});
 
 module.exports = router;
