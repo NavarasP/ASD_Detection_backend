@@ -112,6 +112,230 @@ router.post('/generate-from-assessment', requireAuth, async (req, res) => {
 });
 
 /**
+ * POST /api/reports/generate-combined
+ * Generate report for specific attempt or all assessments
+ */
+router.post('/generate-combined', requireAuth, async (req, res) => {
+  const { childId, attemptNumber } = req.body;
+
+  try {
+    console.log('[Report Generator] Generating combined report for child:', childId, 'attempt:', attemptNumber);
+
+    // Fetch child data
+    const child = await Child.findById(childId);
+    if (!child) {
+      return res.status(404).json({ error: 'Child not found' });
+    }
+
+    // Fetch assessments - filter by attemptNumber if provided
+    let query = { childId };
+    if (attemptNumber) {
+      query.attemptNumber = attemptNumber;
+    }
+    
+    const assessments = await Assessment.find(query)
+      .populate('questionnaireId')
+      .sort({ createdAt: 1 });
+
+    if (assessments.length === 0) {
+      return res.status(404).json({ error: 'No assessments found' });
+    }
+
+    // Calculate child age
+    const childAge = child.dob 
+      ? Math.floor((Date.now() - new Date(child.dob).getTime()) / (1000 * 60 * 60 * 24 * 30.44))
+      : null;
+
+    // Prepare combined assessment data
+    const combinedData = {
+      childInfo: {
+        name: child.name,
+        age: childAge,
+        gender: child.gender,
+        dob: child.dob
+      },
+      attemptNumber: attemptNumber,
+      assessments: assessments.map(a => ({
+        type: a.type,
+        score: a.score,
+        risk: a.risk,
+        answers: a.answers,
+        questionnaireName: a.questionnaireId?.name || a.type,
+        createdAt: a.createdAt
+      }))
+    };
+
+    console.log('[Report Generator] Analyzing combined assessments with LLM...');
+
+    // Generate combined analysis
+    const combinedAnalysis = await generateCombinedAnalysis(combinedData);
+
+    // Format report text
+    const reportText = formatCombinedReportText(combinedData, combinedAnalysis);
+
+    // Save report to database
+    const report = new Report({
+      doctorId: req.user.id,
+      childId: child._id,
+      text: reportText,
+      metadata: {
+        reportType: attemptNumber ? 'attempt-specific' : 'combined',
+        attemptNumber: attemptNumber,
+        totalAssessments: assessments.length,
+        generatedBy: 'AI Combined Analyzer',
+        analysisDate: new Date()
+      }
+    });
+
+    await report.save();
+
+    console.log('[Report Generator] Combined report generated successfully');
+
+    res.json({
+      success: true,
+      report: report,
+      analysis: combinedAnalysis
+    });
+
+  } catch (error) {
+    console.error('[Report Generator] Error:', error);
+    res.status(500).json({ 
+      error: 'Failed to generate combined report',
+      details: error.message 
+    });
+  }
+});
+
+/**
+ * Generate combined analysis for multiple assessments
+ */
+async function generateCombinedAnalysis(combinedData) {
+  const { childInfo, attemptNumber, assessments } = combinedData;
+  
+  // Calculate overall metrics
+  const totalScore = assessments.reduce((sum, a) => sum + a.score, 0);
+  const avgScore = totalScore / assessments.length;
+  
+  // Count risk levels
+  const riskCounts = assessments.reduce((counts, a) => {
+    counts[a.risk] = (counts[a.risk] || 0) + 1;
+    return counts;
+  }, {});
+  
+  const highestRisk = Object.keys(riskCounts).sort((a, b) => {
+    const levels = { 'Low': 0, 'Medium': 1, 'Moderate': 2, 'High': 3 };
+    return (levels[b] || 0) - (levels[a] || 0);
+  })[0];
+  
+  // Generate summary
+  const attemptText = attemptNumber ? `Attempt ${attemptNumber}` : 'All attempts';
+  const summary = `Combined assessment report for ${childInfo.name} (${attemptText}). Total assessments: ${assessments.length}. Average score: ${avgScore.toFixed(1)}. Highest risk level: ${highestRisk}.`;
+  
+  // Generate key findings
+  const keyFindings = assessments.map(a => 
+    `${a.questionnaireName}: Score ${a.score}, Risk ${a.risk}`
+  );
+  
+  // Generate recommendations
+  const recommendations = [];
+  if (highestRisk === 'High' || highestRisk === 'Moderate') {
+    recommendations.push('Immediate consultation with pediatric specialist recommended');
+    recommendations.push('Consider comprehensive developmental evaluation');
+  } else if (highestRisk === 'Medium') {
+    recommendations.push('Schedule follow-up assessment in 3-6 months');
+    recommendations.push('Monitor developmental milestones closely');
+  } else {
+    recommendations.push('Continue routine developmental monitoring');
+    recommendations.push('Maintain regular check-ups');
+  }
+  
+  return {
+    summary,
+    keyFindings,
+    recommendations,
+    overallRisk: highestRisk,
+    averageScore: avgScore.toFixed(1),
+    totalAssessments: assessments.length,
+    riskDistribution: riskCounts,
+    generatedBy: 'Rule-based Combined Analyzer',
+    generatedAt: new Date()
+  };
+}
+
+/**
+ * Format combined report text
+ */
+function formatCombinedReportText(combinedData, analysis) {
+  const { childInfo, attemptNumber, assessments } = combinedData;
+  
+  const attemptText = attemptNumber ? `ATTEMPT ${attemptNumber} ` : 'COMPREHENSIVE ';
+  
+  let text = `${attemptText}ASSESSMENT REPORT
+${'='.repeat(70)}
+
+PATIENT INFORMATION:
+- Name: ${childInfo.name}
+- Age: ${childInfo.age} months
+- Gender: ${childInfo.gender}
+${attemptNumber ? `- Attempt Number: ${attemptNumber}` : ''}
+- Report Generated: ${new Date().toLocaleDateString()}
+
+${'='.repeat(70)}
+
+ASSESSMENT SUMMARY:
+Total Assessments Completed: ${assessments.length}
+Average Score: ${analysis.averageScore}
+Overall Risk Level: ${analysis.overallRisk}
+
+${'='.repeat(70)}
+
+DETAILED RESULTS:
+`;
+
+  assessments.forEach((assessment, index) => {
+    text += `
+${index + 1}. ${assessment.questionnaireName}
+   - Completed: ${new Date(assessment.createdAt).toLocaleDateString()}
+   - Score: ${assessment.score}
+   - Risk Level: ${assessment.risk}
+`;
+  });
+
+  text += `
+${'='.repeat(70)}
+
+RISK DISTRIBUTION:
+`;
+  Object.entries(analysis.riskDistribution).forEach(([level, count]) => {
+    text += `- ${level} Risk: ${count} assessment(s)\n`;
+  });
+
+  text += `
+${'='.repeat(70)}
+
+KEY FINDINGS:
+${analysis.keyFindings.map((finding, i) => `${i + 1}. ${finding}`).join('\n')}
+
+${'='.repeat(70)}
+
+RECOMMENDATIONS:
+${analysis.recommendations.map((rec, i) => `${i + 1}. ${rec}`).join('\n')}
+
+${'='.repeat(70)}
+
+DISCLAIMER:
+This screening assessment is NOT a diagnostic tool. Only qualified healthcare 
+professionals can diagnose autism spectrum disorder. Results should be interpreted 
+in the context of clinical observation and comprehensive evaluation.
+
+Report Generated: ${new Date().toLocaleString()}
+Generated By: ${analysis.generatedBy}
+`;
+
+  return text;
+}
+
+/**
  * POST /api/reports/add
  * Add manual report (existing functionality)
  */

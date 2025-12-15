@@ -387,8 +387,266 @@ async function generateMedicalReport(assessmentData, analysis) {
   return report;
 }
 
+/**
+ * Analyze progress across multiple assessment attempts
+ * @param {Object} progressData - { childInfo, totalAttempts, attemptGroups }
+ * @returns {Object} Progress analysis with trends and recommendations
+ */
+async function analyzeProgressWithLocalLLM(progressData) {
+  try {
+    console.log('[Local LLM] Starting progress analysis...');
+    
+    // Try Ollama first
+    if (await isOllamaAvailable()) {
+      console.log('[Local LLM] Using Ollama for progress analysis');
+      return await analyzeProgressWithOllama(progressData);
+    }
+    
+    // Fallback to rule-based progress analysis
+    console.log('[Local LLM] Using rule-based progress analysis');
+    return await ruleBasedProgressAnalysis(progressData);
+    
+  } catch (error) {
+    console.error('[Local LLM] Progress analysis error:', error.message);
+    return await ruleBasedProgressAnalysis(progressData);
+  }
+}
+
+/**
+ * Analyze progress using Ollama
+ */
+async function analyzeProgressWithOllama(progressData) {
+  const ollamaUrl = process.env.OLLAMA_URL || 'http://localhost:11434';
+  const model = process.env.OLLAMA_MODEL || 'llama2';
+  
+  const prompt = buildProgressPrompt(progressData);
+  
+  try {
+    const response = await axios.post(
+      `${ollamaUrl}/api/generate`,
+      {
+        model: model,
+        prompt: prompt,
+        stream: false,
+        options: {
+          temperature: 0.3,
+          top_p: 0.9,
+          top_k: 40
+        }
+      },
+      { timeout: 90000 }
+    );
+    
+    const generatedText = response.data.response;
+    return parseProgressResponse(generatedText, progressData);
+    
+  } catch (error) {
+    console.error('[Ollama] Progress analysis error:', error.message);
+    throw error;
+  }
+}
+
+/**
+ * Build prompt for progress analysis
+ */
+function buildProgressPrompt(progressData) {
+  const { childInfo, totalAttempts, attemptGroups } = progressData;
+  
+  let prompt = `You are a pediatric developmental specialist analyzing autism screening progress over multiple assessment attempts.
+
+PATIENT: ${childInfo.name}, ${childInfo.age} months old, ${childInfo.gender}
+TOTAL ATTEMPTS: ${totalAttempts}
+
+ASSESSMENT HISTORY:
+`;
+
+  attemptGroups.forEach(attempt => {
+    prompt += `\nAttempt ${attempt.attemptNumber} (${new Date(attempt.date).toLocaleDateString()}):\n`;
+    attempt.assessments.forEach(assessment => {
+      prompt += `  - ${assessment.questionnaireName}: Score ${assessment.score}, Risk Level: ${assessment.risk}\n`;
+    });
+  });
+
+  prompt += `\nPlease analyze:
+1. Overall trajectory of scores and risk levels across attempts
+2. Key observations about changes in specific areas
+3. Improvement areas (positive changes)
+4. Areas of concern (worsening or persistent high risk)
+5. Clinical recommendations based on trends
+6. Suggested next steps
+
+Provide detailed, evidence-based analysis focusing on developmental progress.`;
+
+  return prompt;
+}
+
+/**
+ * Parse LLM progress response
+ */
+function parseProgressResponse(text, progressData) {
+  return {
+    overallSummary: text.substring(0, 500),
+    keyObservations: extractListItems(text, 'observations'),
+    trendAnalysis: text,
+    improvementAreas: extractListItems(text, 'improvement'),
+    concernAreas: extractListItems(text, 'concern'),
+    recommendations: extractListItems(text, 'recommendations'),
+    nextSteps: extractListItems(text, 'next steps'),
+    generatedBy: 'Ollama AI',
+    generatedAt: new Date()
+  };
+}
+
+/**
+ * Rule-based progress analysis (fallback)
+ */
+async function ruleBasedProgressAnalysis(progressData) {
+  const { childInfo, totalAttempts, attemptGroups } = progressData;
+  
+  // Calculate trends
+  const trends = {};
+  attemptGroups.forEach(attempt => {
+    attempt.assessments.forEach(assessment => {
+      if (!trends[assessment.questionnaireName]) {
+        trends[assessment.questionnaireName] = [];
+      }
+      trends[assessment.questionnaireName].push({
+        attempt: attempt.attemptNumber,
+        score: assessment.score,
+        risk: assessment.risk
+      });
+    });
+  });
+  
+  // Analyze each questionnaire's trend
+  const improvements = [];
+  const concerns = [];
+  const observations = [];
+  
+  Object.entries(trends).forEach(([name, history]) => {
+    if (history.length < 2) return;
+    
+    const first = history[0];
+    const last = history[history.length - 1];
+    const scoreChange = last.score - first.score;
+    
+    if (scoreChange < 0) {
+      improvements.push(`${name}: Score improved from ${first.score} to ${last.score} (${Math.abs(scoreChange)} point decrease)`);
+    } else if (scoreChange > 0) {
+      concerns.push(`${name}: Score increased from ${first.score} to ${last.score} (+${scoreChange} points)`);
+    }
+    
+    if (first.risk !== last.risk) {
+      const direction = getRiskDirection(first.risk, last.risk);
+      observations.push(`${name}: Risk level changed from ${first.risk} to ${last.risk} (${direction})`);
+    }
+  });
+  
+  // Generate overall summary
+  const avgFirstScore = attemptGroups[0].assessments.reduce((sum, a) => sum + a.score, 0) / attemptGroups[0].assessments.length;
+  const avgLastScore = attemptGroups[attemptGroups.length - 1].assessments.reduce((sum, a) => sum + a.score, 0) / attemptGroups[attemptGroups.length - 1].assessments.length;
+  const overallChange = avgLastScore - avgFirstScore;
+  
+  let overallSummary = `Progress analysis over ${totalAttempts} assessment attempts for ${childInfo.name}. `;
+  
+  if (overallChange < -2) {
+    overallSummary += `Overall scores show significant improvement (average decrease of ${Math.abs(overallChange).toFixed(1)} points). `;
+  } else if (overallChange > 2) {
+    overallSummary += `Overall scores show increase (average increase of ${overallChange.toFixed(1)} points), requiring attention. `;
+  } else {
+    overallSummary += `Overall scores remain relatively stable across attempts. `;
+  }
+  
+  return {
+    overallSummary,
+    keyObservations: observations.length > 0 ? observations : ['Multiple assessment attempts completed'],
+    trendAnalysis: overallChange < 0 
+      ? 'Assessment scores show a positive trend with decreasing risk indicators over time.'
+      : overallChange > 0 
+        ? 'Assessment scores show increasing trend. Close monitoring recommended.'
+        : 'Assessment scores remain consistent across attempts.',
+    improvementAreas: improvements.length > 0 ? improvements : ['Continue current interventions and monitoring'],
+    concernAreas: concerns.length > 0 ? concerns : ['No significant areas of increasing concern identified'],
+    recommendations: generateProgressRecommendations(overallChange, improvements, concerns),
+    nextSteps: [
+      'Continue regular screening assessments',
+      'Monitor developmental milestones',
+      'Consult with pediatric specialist for comprehensive evaluation',
+      improvements.length > 0 ? 'Maintain current intervention strategies' : 'Consider additional support services'
+    ],
+    generatedBy: 'Rule-based Progress Analyzer',
+    generatedAt: new Date()
+  };
+}
+
+/**
+ * Helper: Get risk direction
+ */
+function getRiskDirection(oldRisk, newRisk) {
+  const levels = ['Low', 'Medium', 'Moderate', 'High'];
+  const oldIndex = levels.indexOf(oldRisk);
+  const newIndex = levels.indexOf(newRisk);
+  
+  if (newIndex < oldIndex) return 'improvement';
+  if (newIndex > oldIndex) return 'escalation';
+  return 'no change';
+}
+
+/**
+ * Helper: Generate recommendations based on trends
+ */
+function generateProgressRecommendations(overallChange, improvements, concerns) {
+  const recommendations = [];
+  
+  if (overallChange < -2) {
+    recommendations.push('Continue current intervention strategies as they show positive results');
+    recommendations.push('Maintain regular monitoring schedule');
+  } else if (overallChange > 2) {
+    recommendations.push('Consider intensifying intervention strategies');
+    recommendations.push('Increase frequency of professional consultations');
+    recommendations.push('Explore additional therapeutic options');
+  } else {
+    recommendations.push('Maintain current monitoring and intervention approach');
+  }
+  
+  if (concerns.length > 0) {
+    recommendations.push('Focus on areas showing increased scores');
+    recommendations.push('Conduct detailed evaluation of concerning areas');
+  }
+  
+  if (improvements.length > 0) {
+    recommendations.push('Reinforce positive changes through continued engagement');
+  }
+  
+  recommendations.push('Schedule comprehensive developmental assessment with specialist');
+  
+  return recommendations;
+}
+
+/**
+ * Helper: Extract list items from text
+ */
+function extractListItems(text, keyword) {
+  const items = [];
+  const lines = text.split('\n');
+  let capturing = false;
+  
+  lines.forEach(line => {
+    if (line.toLowerCase().includes(keyword)) {
+      capturing = true;
+    } else if (capturing && (line.match(/^\d+\./) || line.match(/^[-•*]/))) {
+      items.push(line.replace(/^(\d+\.|[-•*])\s*/, '').trim());
+    } else if (capturing && line.trim() === '') {
+      capturing = false;
+    }
+  });
+  
+  return items.length > 0 ? items : [`Analysis of ${keyword} in progress`];
+}
+
 module.exports = {
   analyzeAssessmentWithLocalLLM,
   generateMedicalReport,
+  analyzeProgressWithLocalLLM,
   isOllamaAvailable
 };

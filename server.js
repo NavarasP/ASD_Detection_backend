@@ -13,6 +13,7 @@ const childrenRoutes = require('./routes/children');
 const assessmentRoutes = require('./routes/assessments');
 const mediaRoutes = require('./routes/media');
 const reportRoutes = require('./routes/reports-enhanced');
+const progressReportRoutes = require('./routes/progress-report');
 const dashboardRoutes = require('./routes/dashboard');
 const chatRoutes = require('./routes/chat');
 const searchRoutes = require('./routes/search');
@@ -79,6 +80,7 @@ app.use('/api/children', childrenRoutes);
 app.use('/api/assessments', assessmentRoutes);
 app.use('/api/media', mediaRoutes);
 app.use('/api/reports', reportRoutes);
+app.use('/api/reports', progressReportRoutes);
 app.use('/api/dashboard', dashboardRoutes);
 app.use('/api/chat', chatRoutes);
 app.use('/api/search', searchRoutes);
@@ -99,10 +101,13 @@ const PORT = process.env.PORT || 8002;
 const server = http.createServer(app);
 initChatServer(server);
 
-server.listen(PORT, () => {
-  console.log(`🚀 Server running on http://localhost:${PORT}`);
-  console.log(`💬 WebSocket chat active on ws://localhost:${PORT}`);
-});
+// For local development
+if (process.env.NODE_ENV !== 'production') {
+  server.listen(PORT, () => {
+    console.log(`🚀 Server running on http://localhost:${PORT}`);
+    console.log(`💬 WebSocket chat active on ws://localhost:${PORT}`);
+  });
+}
 
 // Handle uncaught exceptions
 process.on('uncaughtException', (err) => {
@@ -112,3 +117,6 @@ process.on('uncaughtException', (err) => {
 process.on('unhandledRejection', (reason, promise) => {
   console.error('❌ Unhandled Rejection at:', promise, 'reason:', reason);
 });
+
+// Export for Vercel serverless
+module.exports = app;

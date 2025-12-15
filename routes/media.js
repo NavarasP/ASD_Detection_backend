@@ -3,6 +3,7 @@ const multer = require('multer');
 const cloudinary = require('cloudinary').v2;
 const { requireAuth } = require('../middleware/auth');
 const mongoose = require('mongoose');
+const streamifier = require('streamifier');
 
 const router = express.Router();
 
@@ -12,7 +13,11 @@ cloudinary.config({
   api_secret: process.env.CLOUDINARY_API_SECRET
 });
 
-const upload = multer({ dest: 'uploads/' });
+// Use memory storage for Vercel serverless (no disk access)
+const upload = multer({ 
+  storage: multer.memoryStorage(),
+  limits: { fileSize: 10 * 1024 * 1024 } // 10MB limit
+});
 
 const MediaSchema = new mongoose.Schema({
   childId: { type: mongoose.Schema.Types.ObjectId, ref: 'Child', required: true },
@@ -27,7 +32,23 @@ const Media = mongoose.model('Media', MediaSchema);
 router.post('/upload', requireAuth, upload.single('file'), async (req, res) => {
   try {
     const { childId, fileType } = req.body;
-    const result = await cloudinary.uploader.upload(req.file.path, { resource_type: "auto" });
+    
+    // Upload from buffer (memory) instead of file path
+    const uploadStream = (buffer) => {
+      return new Promise((resolve, reject) => {
+        const stream = cloudinary.uploader.upload_stream(
+          { resource_type: "auto" },
+          (error, result) => {
+            if (error) reject(error);
+            else resolve(result);
+          }
+        );
+        streamifier.createReadStream(buffer).pipe(stream);
+      });
+    };
+
+    const result = await uploadStream(req.file.buffer);
+    
     const media = new Media({
       childId,
       fileType,
