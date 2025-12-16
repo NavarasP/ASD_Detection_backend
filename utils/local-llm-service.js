@@ -8,6 +8,7 @@
  */
 
 const axios = require('axios');
+const Groq = require('groq-sdk');
 
 /**
  * Main entry point for assessment analysis
