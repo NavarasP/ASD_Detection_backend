@@ -16,6 +16,9 @@
     "MONGO_URI": "@mongo_uri",
     "JWT_SECRET": "@jwt_secret",
     "FRONTEND_ORIGIN": "@frontend_origin",
-    "OLLAMA_URL": "@ollama_url"
+    "OLLAMA_URL": "@ollama_url",
+    "CLOUDINARY_CLOUD_NAME": "@cloudinary_cloud_name",
+    "CLOUDINARY_API_KEY": "@cloudinary_api_key",
+    "CLOUDINARY_API_SECRET": "@cloudinary_api_secret"
   }
 }
