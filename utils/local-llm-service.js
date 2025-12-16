@@ -1,10 +1,10 @@
 /**
  * Local LLM Service for Medical Assessment Analysis
- * No external APIs - runs locally for data privacy and HIPAA compliance
  * 
  * Supported Options:
- * 1. Ollama (Recommended) - Local LLM server with medical models
- * 2. Rule-based Expert System - Fallback when LLM unavailable
+ * 1. Groq API (Recommended for production) - Fast, free, cloud-based
+ * 2. Ollama (Local) - Local LLM server with medical models
+ * 3. Rule-based Expert System - Fallback when LLM unavailable
  */
 
 const axios = require('axios');
@@ -16,20 +16,26 @@ const axios = require('axios');
  */
 async function analyzeAssessmentWithLocalLLM(assessmentData) {
   try {
-    console.log('[Local LLM] Starting assessment analysis...');
+    console.log('[LLM Service] Starting assessment analysis...');
     
-    // Try Ollama first (local LLM server)
+    // Try Groq API first (production)
+    if (process.env.GROQ_API_KEY) {
+      console.log('[LLM Service] Using Groq API for analysis');
+      return await analyzeWithGroq(assessmentData);
+    }
+    
+    // Try Ollama (local development)
     if (await isOllamaAvailable()) {
-      console.log('[Local LLM] Using Ollama for analysis');
+      console.log('[LLM Service] Using Ollama for analysis');
       return await analyzeWithOllama(assessmentData);
     }
     
     // Fallback to advanced rule-based system
-    console.log('[Local LLM] Using rule-based expert system');
+    console.log('[LLM Service] Using rule-based expert system');
     return await advancedRuleBasedAnalysis(assessmentData);
     
   } catch (error) {
-    console.error('[Local LLM] Analysis error:', error.message);
+    console.error('[LLM Service] Analysis error:', error.message);
     // Final fallback
     return await advancedRuleBasedAnalysis(assessmentData);
   }
@@ -45,6 +51,54 @@ async function isOllamaAvailable() {
     return response.status === 200;
   } catch (error) {
     return false;
+  }
+}
+
+/**
+ * Analyze assessment using Groq API (production)
+ * Fast, free tier available, works great for serverless
+ */
+async function analyzeWithGroq(assessmentData) {
+  const apiKey = process.env.GROQ_API_KEY;
+  const model = process.env.GROQ_MODEL || 'llama-3.1-70b-versatile'; // Fast and capable
+  
+  const prompt = buildMedicalPrompt(assessmentData);
+  
+  try {
+    const response = await axios.post(
+      'https://api.groq.com/openai/v1/chat/completions',
+      {
+        model: model,
+        messages: [
+          {
+            role: 'system',
+            content: 'You are a pediatric developmental specialist assistant analyzing autism spectrum disorder (ASD) screening assessments. Provide professional, compassionate medical analysis.'
+          },
+          {
+            role: 'user',
+            content: prompt
+          }
+        ],
+        temperature: 0.3, // Lower temperature for medical accuracy
+        max_tokens: 1500
+      },
+      {
+        headers: {
+          'Authorization': `Bearer ${apiKey}`,
+          'Content-Type': 'application/json'
+        },
+        timeout: 30000
+      }
+    );
+    
+    const generatedText = response.data.choices[0].message.content;
+    
+    // Parse LLM response
+    return parseLLMResponse(generatedText, assessmentData);
+    
+  } catch (error) {
+    console.error('[Groq API] Generation error:', error.message);
+    throw error;
   }
 }
 
