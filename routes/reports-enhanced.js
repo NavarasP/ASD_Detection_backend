@@ -87,6 +87,8 @@ router.post('/generate-from-assessment', requireAuth, async (req, res) => {
       summary: analysis.summary,
       recommendations: analysis.recommendations.join('\n'),
       keyFindings: analysis.keyFindings,
+      provider: process.env.GROQ_API_KEY ? 'Groq API' : 'Rule-based Expert System',
+      model: process.env.GROQ_MODEL || 'N/A',
       generatedAt: new Date()
     };
     assessment.reviewedByDoctor = req.user.id;
@@ -633,7 +635,8 @@ router.post('/generate-combined', requireAuth, async (req, res) => {
     reportText += `3. Consider early intervention services if recommended\n`;
     reportText += `4. Continue monitoring developmental milestones\n\n`;
     reportText += `Report Generated: ${new Date().toLocaleString()}\n`;
-    reportText += `Generated for: ${req.user.role}\n\n`;
+    reportText += `Generated for: ${req.user.role}\n`;
+    reportText += `Analysis Provider: ${process.env.GROQ_API_KEY ? `Groq API (${process.env.GROQ_MODEL || 'llama-3.1-70b-versatile'})` : 'Rule-based Expert System'}\n\n`;
     reportText += `This is an automated screening report. Clinical diagnosis requires professional evaluation.\n`;
 
     // Save the combined report

@@ -9,19 +9,33 @@ const { requireAuth } = require('../middleware/auth');
  */
 router.get('/status', async (req, res) => {
   try {
+    const groqAvailable = !!process.env.GROQ_API_KEY;
     const ollamaAvailable = await isOllamaAvailable();
+    
+    let provider = 'Rule-based expert system';
+    let message = 'Using rule-based analysis';
+    
+    if (groqAvailable) {
+      provider = 'Groq API';
+      message = `Using Groq API (${process.env.GROQ_MODEL || 'llama-3.1-70b-versatile'})`;
+    } else if (ollamaAvailable) {
+      provider = 'Ollama (Local)';
+      message = `Using local Ollama (${process.env.OLLAMA_MODEL || 'llama2'})`;
+    }
     
     res.json({
       success: true,
+      provider: provider,
+      message: message,
+      groq: {
+        available: groqAvailable,
+        model: process.env.GROQ_MODEL || 'llama-3.1-70b-versatile'
+      },
       ollama: {
         available: ollamaAvailable,
         url: process.env.OLLAMA_URL || 'http://localhost:11434',
         model: process.env.OLLAMA_MODEL || 'llama2'
-      },
-      fallbackMode: !ollamaAvailable,
-      message: ollamaAvailable 
-        ? 'Local LLM (Ollama) is available and ready'
-        : 'Using rule-based expert system (Ollama not available)'
+      }
     });
   } catch (error) {
     res.status(500).json({
