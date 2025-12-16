@@ -61,38 +61,29 @@ async function isOllamaAvailable() {
  */
 async function analyzeWithGroq(assessmentData) {
   const apiKey = process.env.GROQ_API_KEY;
-  const model = process.env.GROQ_MODEL || 'llama-3.1-70b-versatile'; // Fast and capable
+  const model = process.env.GROQ_MODEL || 'llama-3.1-70b-versatile';
   
+  const groq = new Groq({ apiKey });
   const prompt = buildMedicalPrompt(assessmentData);
   
   try {
-    const response = await axios.post(
-      'https://api.groq.com/openai/v1/chat/completions',
-      {
-        model: model,
-        messages: [
-          {
-            role: 'system',
-            content: 'You are a pediatric developmental specialist assistant analyzing autism spectrum disorder (ASD) screening assessments. Provide professional, compassionate medical analysis.'
-          },
-          {
-            role: 'user',
-            content: prompt
-          }
-        ],
-        temperature: 0.3, // Lower temperature for medical accuracy
-        max_tokens: 1500
-      },
-      {
-        headers: {
-          'Authorization': `Bearer ${apiKey}`,
-          'Content-Type': 'application/json'
+    const completion = await groq.chat.completions.create({
+      model: model,
+      messages: [
+        {
+          role: 'system',
+          content: 'You are a pediatric developmental specialist assistant analyzing autism spectrum disorder (ASD) screening assessments. Provide professional, compassionate medical analysis.'
         },
-        timeout: 30000
-      }
-    );
+        {
+          role: 'user',
+          content: prompt
+        }
+      ],
+      temperature: 0.3, // Lower temperature for medical accuracy
+      max_tokens: 1500
+    });
     
-    const generatedText = response.data.choices[0].message.content;
+    const generatedText = completion.choices[0]?.message?.content || '';
     
     // Parse LLM response
     return parseLLMResponse(generatedText, assessmentData);
